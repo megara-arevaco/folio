@@ -1,0 +1,35 @@
+# Secrets and machine-local environment
+.env
+.env.*
+!.env.example
+
+# Dependencies and package-manager caches
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+apps/web/dist/
+coverage/
+*.tsbuildinfo
+
+# Runtime data and user files
+tmp/
+output/
+.cache/
+*.sqlite
+*.sqlite-journal
+
+# Logs
+*.log
+pnpm-debug.log*
+npm-debug.log*
+
+# Local tooling and editor state
+.agents/
+.codex/
+.impeccable/
+.tmp-*
+.DS_Store
+.idea/
+.vscode/

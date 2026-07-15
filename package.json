@@ -1,0 +1,48 @@
+{
+  "name": "epub-translator",
+  "version": "0.1.0",
+  "description": "Aplicacion de escritorio personal para traducir EPUB y convertir PDF a EPUB",
+  "author": "EPUB Translator",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "type": "module",
+  "scripts": {
+    "dev:api": "EPUB_TRANSLATOR_STANDALONE=true tsx watch apps/api/src/server.ts",
+    "dev:web": "vite apps/web --host 0.0.0.0",
+    "dev:device-bridge": "tsx scripts/device-bridge.ts",
+    "dev": "vite apps/web --host 0.0.0.0",
+    "build": "vite build apps/web",
+    "test": "node --import tsx --test apps/api/src/**/*.test.ts apps/web/src/**/*.test.ts",
+    "preview": "vite preview apps/web --host 0.0.0.0",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/multipart": "^10.0.0",
+    "@tailwindcss/vite": "^4.3.2",
+    "@vitejs/plugin-react": "^5.0.0",
+    "adm-zip": "^0.5.18",
+    "cheerio": "^1.2.0",
+    "daisyui": "^5.6.6",
+    "fastify": "^5.9.0",
+    "pdfjs-dist": "^6.1.200",
+    "pngjs": "^7.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router": "^8.2.0",
+    "tailwindcss": "^4.3.2",
+    "tesseract.js": "^7.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.8.0",
+    "uuid": "^14.0.1",
+    "vite": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/node": "^26.0.1",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/uuid": "^11.0.0"
+  }
+}
