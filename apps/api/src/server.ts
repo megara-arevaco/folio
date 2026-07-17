@@ -16,6 +16,7 @@ export async function createServer(): Promise<FastifyInstance> {
   await app.register(fastifyCors, {
     origin: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+    exposedHeaders: ["X-Local-File-Id", "X-File-Name", "Content-Disposition"],
   });
   await app.register(fastifyMultipart, {
     limits: { fileSize: maxUploadMb * 1024 * 1024 },

@@ -173,7 +173,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
       {error ? <div className="alert alert-error"><span>{error}</span></div> : null}
       <div className="jobs-wrap">
             <table className="table jobs-table">
-            <colgroup><col className="w-[34%]" /><col className="w-[38%]" /><col className="w-[28%]" /></colgroup>
+            <colgroup><col className="job-column--file" /><col className="job-column--progress" /><col className="job-column--status" /></colgroup>
             <thead>
               <tr>
                 <th>Archivo</th>

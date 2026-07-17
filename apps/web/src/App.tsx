@@ -14,21 +14,44 @@ import {
   type TranslationJobKind,
 } from "./services/translation";
 
+function isJobActive(job: TranslationJob): boolean {
+  return job.status === "pending" || job.status === "processing" || job.status === "pausing";
+}
+
+const JOBS_UPDATED_EVENT = "epub-translator:jobs-updated";
+
+function publishJobsUpdated(jobs: TranslationJob[]): void {
+  window.dispatchEvent(new CustomEvent<TranslationJob[]>(JOBS_UPDATED_EVENT, { detail: jobs }));
+}
+
 function useConfirmBeforePageExit() {
   const hasUnfinishedJobs = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    let timer: number | null = null;
+
+    const updateKnownJobs = (jobs: TranslationJob[]) => {
+      hasUnfinishedJobs.current = jobs.some((job) => isJobActive(job) || job.status === "paused");
+
+      if (!jobs.some(isJobActive) && timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
     const checkJobs = async () => {
       try {
         const jobs = await fetchTranslationJobs();
         if (!cancelled) {
-          hasUnfinishedJobs.current = jobs.some((job) =>
-            job.status === "pending" ||
-            job.status === "processing" ||
-            job.status === "pausing" ||
-            job.status === "paused"
-          );
+          updateKnownJobs(jobs);
+
+          if (jobs.some(isJobActive)) {
+            timer = window.setTimeout(() => {
+              timer = null;
+              void checkJobs();
+            }, 2000);
+          }
         }
       } catch {
         // A temporary API error should not introduce a misleading exit warning.
@@ -43,13 +66,18 @@ function useConfirmBeforePageExit() {
       return message;
     };
 
+    const receiveJobsUpdated = (event: Event) => {
+      updateKnownJobs((event as CustomEvent<TranslationJob[]>).detail);
+    };
+
     void checkJobs();
-    const timer = window.setInterval(() => void checkJobs(), 2000);
     window.addEventListener("beforeunload", confirmExit);
+    window.addEventListener(JOBS_UPDATED_EVENT, receiveJobsUpdated);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== null) window.clearTimeout(timer);
       window.removeEventListener("beforeunload", confirmExit);
+      window.removeEventListener(JOBS_UPDATED_EVENT, receiveJobsUpdated);
     };
   }, []);
 }
@@ -60,30 +88,41 @@ function useJobQueue(kind: TranslationJobKind) {
   const refresh = useCallback(async () => {
     const allJobs = await fetchTranslationJobs();
     setJobs(allJobs.filter((job) => job.kind === kind));
+    publishJobsUpdated(allJobs);
   }, [kind]);
 
   useEffect(() => {
     let cancelled = false;
 
-    const poll = async () => {
+    const loadJobs = async () => {
       try {
         const allJobs = await fetchTranslationJobs();
         if (cancelled) return;
 
         const nextJobs = allJobs.filter((job) => job.kind === kind);
         setJobs(nextJobs);
+        publishJobsUpdated(allJobs);
       } catch {
         // La pantalla de estado ya muestra los errores de red del trabajo actual.
       }
     };
 
-    void poll();
-    const pollTimer = window.setInterval(() => void poll(), 1500);
+    void loadJobs();
     return () => {
       cancelled = true;
-      window.clearInterval(pollTimer);
     };
   }, [kind]);
+
+  useEffect(() => {
+    if (!jobs.some(isJobActive)) return;
+
+    const pollTimer = window.setTimeout(() => {
+      void refresh().catch(() => {
+        // La siguiente acción del usuario volverá a consultar la cola.
+      });
+    }, 1500);
+    return () => window.clearTimeout(pollTimer);
+  }, [jobs, refresh]);
 
   return { jobs, refresh };
 }
@@ -91,7 +130,6 @@ function useJobQueue(kind: TranslationJobKind) {
 type ConversionSectionProps = {
   badge: string;
   title: string;
-  description: string;
   primaryAction: string;
   file: File | null;
   inputFileName: string | null;
@@ -121,7 +159,6 @@ type ConversionSectionProps = {
 function ConversionSection({
   badge,
   title,
-  description,
   primaryAction,
   file,
   inputFileName,
@@ -160,7 +197,6 @@ function ConversionSection({
           {badge ? <div className="badge badge-primary badge-outline">{badge}</div> : null}
           <h1 className="workspace-title">{title}</h1>
         </div>
-        <p className="workspace-description">{description}</p>
       </header>
 
       <div className="conversion-layout">
@@ -245,7 +281,6 @@ function TranslationsWorkspace() {
         <ConversionSection
           badge=""
           title="Traducir EPUB"
-          description="Convierte un EPUB en un libro listo para leer y sigue cada trabajo hasta completarlo."
           primaryAction="Traducir EPUB"
           file={file}
           inputFileName={inputFileName}
@@ -284,7 +319,6 @@ function FormatWorkspace() {
         <ConversionSection
           badge=""
           title="Convertir PDF"
-          description="Convierte PDF en EPUB refluible y aplica OCR automáticamente cuando el documento lo necesite."
           primaryAction="Convertir PDF"
           file={pdfConversion.file}
           inputFileName={pdfConversion.inputFileName}
@@ -315,6 +349,24 @@ function FormatWorkspace() {
   );
 }
 
+function NavigationIcon({ type }: { type: "translate" | "convert" | "metadata" | "device" | "reading" }) {
+  const paths = {
+    translate: <><path d="M5 19 19 5" /><path d="M10 5h9v9" /></>,
+    convert: <><path d="M4 8h14" /><path d="m15 5 3 3-3 3" /><path d="M20 16H6" /><path d="m9 13-3 3 3 3" /></>,
+    metadata: <><rect x="5" y="4" width="14" height="16" rx="2" /><path d="M8 8h8M8 12h6M8 16h4" /></>,
+    device: <><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M10 18h4" /></>,
+    reading: <><path d="M4 5.5A3.5 3.5 0 0 1 7.5 4H11v16H7.5A3.5 3.5 0 0 0 4 21.5z" /><path d="M20 5.5A3.5 3.5 0 0 0 16.5 4H13v16h3.5a3.5 3.5 0 0 1 3.5 1.5z" /></>,
+  };
+
+  return (
+    <span className="app-nav__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {paths[type]}
+      </svg>
+    </span>
+  );
+}
+
 function TopNavigation() {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -324,8 +376,8 @@ function TopNavigation() {
     <header className="app-header">
       <div className="app-header__inner">
         <NavLink className="app-brand" to="/translations" aria-label="EPUB Translator" onClick={closeMenu}>
-          <span className="app-brand__mark" aria-hidden="true"><i /><i /></span>
-          <span className="app-brand__name">EPUB Translator</span>
+          <span className="app-brand__mark" aria-hidden="true" />
+          <span className="app-brand__name">mi biblioteca <strong>/ taller</strong></span>
         </NavLink>
         <button
           type="button"
@@ -338,35 +390,28 @@ function TopNavigation() {
           <span /><span />
         </button>
         <nav id="primary-navigation" className={`app-nav ${isOpen ? "is-open" : ""}`} aria-label="Secciones principales">
-        <NavLink
-          to="/translations"
-          className="app-nav__link"
-          onClick={closeMenu}
-        >
-          Traducciones
-        </NavLink>
-        <NavLink
-          to="/format"
-          className="app-nav__link"
-          onClick={closeMenu}
-        >
-          Formato
-        </NavLink>
-        <NavLink
-          to="/metadata"
-          className="app-nav__link"
-          onClick={closeMenu}
-        >
-          Metadatos
-        </NavLink>
-        <NavLink
-          to="/device"
-          className="app-nav__link"
-          onClick={closeMenu}
-        >
-          Dispositivo
-        </NavLink>
-        <NavLink to="/reading-log" className="app-nav__link" onClick={closeMenu}>Lecturas</NavLink>
+          <div className="app-nav__group">
+            <NavLink to="/translations" className="app-nav__link" onClick={closeMenu}>
+              <NavigationIcon type="translate" />
+              Traducir EPUB
+            </NavLink>
+            <NavLink to="/format" className="app-nav__link" onClick={closeMenu}>
+              <NavigationIcon type="convert" />
+              Convertir PDF
+            </NavLink>
+            <NavLink to="/metadata" className="app-nav__link" onClick={closeMenu}>
+              <NavigationIcon type="metadata" />
+              Metadatos
+            </NavLink>
+            <NavLink to="/device" className="app-nav__link" onClick={closeMenu}>
+              <NavigationIcon type="device" />
+              Dispositivo
+            </NavLink>
+            <NavLink to="/reading-log" className="app-nav__link" onClick={closeMenu}>
+              <NavigationIcon type="reading" />
+              Lecturas
+            </NavLink>
+          </div>
         </nav>
       </div>
     </header>

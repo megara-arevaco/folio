@@ -67,6 +67,50 @@ test("updateEpubMetadata persists editable fields without removing other OPF met
   }
 });
 
+test("updateEpubMetadata preserves attributes and refinements on retained metadata", async () => {
+  const { root, epubPath } = await createTestEpub();
+  try {
+    const zip = new AdmZip(epubPath);
+    zip.updateFile("EPUB/package.opf", Buffer.from(`<?xml version="1.0"?>
+      <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:identifier>urn:test:book</dc:identifier>
+          <dc:title id="main-title" xml:lang="en">Original title</dc:title>
+          <meta refines="#main-title" property="title-type">main</meta>
+          <dc:creator id="author-1" opf:role="aut" xmlns:opf="http://www.idpf.org/2007/opf">First author</dc:creator>
+          <meta refines="#author-1" property="role" scheme="marc:relators">aut</meta>
+          <dc:language>en</dc:language>
+        </metadata>
+        <manifest />
+        <spine />
+      </package>`));
+    await writeFile(epubPath, zip.toBuffer());
+
+    await updateEpubMetadata(epubPath, {
+      title: "Título actualizado",
+      authors: ["Autora actualizada"],
+      language: "es",
+      publisher: "",
+      description: "",
+    });
+
+    assert.deepEqual(readEpubMetadata(epubPath), {
+      title: "Título actualizado",
+      authors: ["Autora actualizada"],
+      language: "es",
+      publisher: "",
+      description: "",
+    });
+    const opf = new AdmZip(epubPath).readAsText("EPUB/package.opf");
+    assert.match(opf, /<dc:title id="main-title" xml:lang="en">T(?:í|&#xed;)tulo actualizado<\/dc:title>/);
+    assert.match(opf, /<meta refines="#main-title" property="title-type">main<\/meta>/);
+    assert.match(opf, /<dc:creator id="author-1" opf:role="aut"[^>]*>Autora actualizada<\/dc:creator>/);
+    assert.match(opf, /<meta refines="#author-1" property="role" scheme="marc:relators">aut<\/meta>/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("updateEpubCoverBuffer adds a cover when the EPUB does not have one", async () => {
   const { root, epubPath } = await createTestEpub();
   try {

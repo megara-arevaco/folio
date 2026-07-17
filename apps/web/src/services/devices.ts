@@ -26,7 +26,21 @@ export function getDeviceBookUrl(deviceId: string, path: string): string {
 export async function fetchDeviceBook(deviceId: string, path: string, fileName: string): Promise<File> {
   const response = await fetch(getDeviceBookUrl(deviceId, path));
   if (!response.ok) throw new Error("No se ha podido leer el libro del dispositivo");
-  return new File([await response.blob()], fileName, { type: "application/epub+zip" });
+  const type = fileName.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/epub+zip";
+  return new File([await response.blob()], fileName, { type });
+}
+
+export async function replaceDeviceBook(deviceId: string, path: string, file: Blob, fileName: string): Promise<void> {
+  const body = new FormData();
+  body.append("file", file, fileName);
+  const response = await fetch(`${API_BASE_URL}/api/devices/${encodeURIComponent(deviceId)}/books/content?path=${encodeURIComponent(path)}`, {
+    method: "PUT",
+    body,
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error ?? "No se ha podido sobrescribir el archivo del dispositivo");
+  }
 }
 
 export async function deleteDeviceBook(deviceId: string, path: string): Promise<void> {

@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import AdmZip from "adm-zip";
-import { listEbookDevices, parseKfxMetadata, resolveDeviceBook, uploadKnownDeviceBook } from "./devices";
+import { listEbookDevices, parseKfxMetadata, replaceKnownDeviceBook, resolveDeviceBook, uploadKnownDeviceBook } from "./devices";
 
 async function createEpub(path: string) {
   const zip = new AdmZip();
@@ -88,6 +88,26 @@ test("uploadKnownDeviceBook rejects unsupported file formats", async () => {
       uploadKnownDeviceBook({ id: "kindle", name: "Kindle", root, books: [] }, "script.exe", Buffer.from("bad")),
       /Formato no compatible/,
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("replaceKnownDeviceBook atomically overwrites the selected device file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ebook-device-"));
+  try {
+    await mkdir(join(root, "Books"));
+    const path = join(root, "Books", "book.pdf");
+    await writeFile(path, Buffer.from("original"));
+    const device = {
+      id: "kindle",
+      name: "Kindle",
+      root,
+      books: [{ path: "Books/book.pdf", fileName: "book.pdf", title: "Book", authors: [], size: 8, modifiedAt: new Date().toISOString(), format: "PDF" }],
+    };
+    assert.equal(await replaceKnownDeviceBook(device, "Books/book.pdf", Buffer.from("updated")), true);
+    assert.equal((await readFile(path)).toString(), "updated");
+    assert.equal(await replaceKnownDeviceBook(device, "../outside.pdf", Buffer.from("bad")), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

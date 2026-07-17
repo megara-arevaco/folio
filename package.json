@@ -25,6 +25,7 @@
     "cheerio": "^1.2.0",
     "daisyui": "^5.6.6",
     "fastify": "^5.9.0",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.1.200",
     "pngjs": "^7.0.0",
     "react": "^19.0.0",

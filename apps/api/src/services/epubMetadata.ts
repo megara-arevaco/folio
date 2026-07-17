@@ -135,8 +135,25 @@ function replaceMetadataField(
   values: string[],
 ): void {
   const existing = findChildrenByLocalName(metadata, name);
-  existing.remove();
-  for (const value of values.map((item) => item.trim()).filter(Boolean)) {
+  const normalizedValues = values.map((item) => item.trim()).filter(Boolean);
+
+  existing.each((index) => {
+    const item = existing.eq(index);
+    if (index < normalizedValues.length) {
+      item.text(normalizedValues[index]!);
+      return;
+    }
+
+    const id = item.attr("id") ?? item.attr("xml:id");
+    if (id) {
+      findChildrenByLocalName(metadata, "meta")
+        .filter((_, meta) => meta.attribs?.refines === `#${id}`)
+        .remove();
+    }
+    item.remove();
+  });
+
+  for (const value of normalizedValues.slice(existing.length)) {
     metadata.append(`<dc:${name}></dc:${name}>`);
     findChildrenByLocalName(metadata, name).last().text(value);
   }

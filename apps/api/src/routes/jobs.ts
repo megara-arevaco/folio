@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import { deleteCompletedJobs, deleteJob, getJob, listJobs, pauseActiveJobs, pauseJob, renameJobOutput, reorderQueuedJob, resumeJob, serializeJob, startQueuedJob } from "../services/jobs";
 import { readEpubCover, readEpubMetadata, updateEpubCoverBuffer, updateEpubMetadata, type EpubMetadata } from "../services/epubMetadata";
 import { writeFile } from "node:fs/promises";
+import { attachmentContentDisposition } from "../http";
 
 export async function jobsRoutes(fastify: FastifyInstance) {
   fastify.get("/api/jobs", async (_request, reply) => {
@@ -111,7 +112,7 @@ export async function jobsRoutes(fastify: FastifyInstance) {
 
     reply.header(
       "Content-Disposition",
-      `attachment; filename="${job.outputFileName}"`,
+      attachmentContentDisposition(job.outputFileName),
     );
     reply.type("application/epub+zip");
     return reply.send(createReadStream(job.outputFilePath));

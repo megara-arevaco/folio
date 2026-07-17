@@ -136,7 +136,6 @@ export function DevicePage() {
     <main className="workspace-page">
       <header className="workspace-intro">
         <h1 className="workspace-title">Dispositivo</h1>
-        <p className="workspace-description">Explora, descarga y envía libros a un e-reader conectado por USB.</p>
       </header>
       <section className="device-section">
         <div className="workbench-toolbar workbench-surface workbench-section">
@@ -204,7 +203,7 @@ export function DevicePage() {
                   <tr key={book.path}>
                     <td data-label="Seleccionar"><input type="checkbox" className="checkbox checkbox-sm" aria-label={`Seleccionar ${book.title}`} checked={selectedBooks.has(selectionKey(device.id, book.path))} onChange={() => toggleBook(device.id, book.path)} /></td>
                     <td data-label="Libro">
-                      {book.format === "EPUB" ? (
+                      {["EPUB", "PDF"].includes(book.format) ? (
                         <button
                           type="button"
                           className="block w-full truncate text-left font-medium text-primary hover:underline"
@@ -221,7 +220,7 @@ export function DevicePage() {
                     <td data-label="Formato"><span className="badge badge-ghost badge-sm operational-meta">{book.format}</span></td>
                     <td data-label="Tamaño" className="operational-meta whitespace-nowrap">{formatSize(book.size)}</td>
                     <td data-label="Acciones"><div className="flex flex-nowrap justify-end gap-2">
-                      {book.format === "EPUB" ? <button type="button" className="btn btn-primary btn-outline btn-square btn-sm" aria-label="Editar metadatos" title="Editar metadatos" onClick={() => navigate(`/metadata/device?deviceId=${encodeURIComponent(device.id)}&path=${encodeURIComponent(book.path)}&fileName=${encodeURIComponent(book.fileName)}`)}><DeviceIcon type="edit" /></button> : null}
+                      {["EPUB", "PDF"].includes(book.format) ? <button type="button" className="btn btn-primary btn-outline btn-square btn-sm" aria-label="Editar metadatos" title="Editar metadatos" onClick={() => navigate(`/metadata/device?deviceId=${encodeURIComponent(device.id)}&path=${encodeURIComponent(book.path)}&fileName=${encodeURIComponent(book.fileName)}`)}><DeviceIcon type="edit" /></button> : null}
                       <a className="btn btn-success btn-square btn-sm" href={getDeviceBookUrl(device.id, book.path)} target="epub-translator-download" aria-label="Descargar" title="Descargar"><DeviceIcon type="download" /></a>
                       <button type="button" className="btn btn-error btn-outline btn-square btn-sm" aria-label="Borrar" title="Borrar" onClick={() => void removeBook(device.id, book.path, book.title)}><DeviceIcon type="delete" /></button>
                     </div></td>

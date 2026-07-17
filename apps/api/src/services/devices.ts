@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, open, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -242,6 +242,40 @@ export async function deleteKnownDeviceBook(device: EbookDevice, bookPath: strin
   if (!book) return false;
   await rm(book.path);
   return true;
+}
+
+export async function replaceKnownDeviceBook(device: EbookDevice, bookPath: string, data: Buffer): Promise<boolean> {
+  const book = await resolveKnownDeviceBook(device, bookPath);
+  if (!book) return false;
+  const isGvfsMtp = device.root.split(sep).some((part) => part === "gvfs") || basename(device.root).startsWith("mtp:host=");
+  if (isGvfsMtp) {
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), "kindle-replace-"));
+    const source = join(temporaryDirectory, book.fileName);
+    try {
+      await writeFile(source, data);
+      await execFileAsync(process.env.GIO_COMMAND ?? "gio", ["copy", "--overwrite", "--no-target-directory", source, book.path], {
+        timeout: 5 * 60 * 1000,
+        maxBuffer: 1024 * 1024,
+      });
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+    return true;
+  }
+
+  const temporaryPath = join(dirname(book.path), `.${randomUUID()}.${book.fileName}.tmp`);
+  try {
+    await writeFile(temporaryPath, data);
+    await rename(temporaryPath, book.path);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+  return true;
+}
+
+export async function replaceDeviceBook(deviceIdValue: string, bookPath: string, data: Buffer): Promise<boolean> {
+  const device = (await listEbookDevices()).find((item) => item.id === deviceIdValue);
+  return device ? replaceKnownDeviceBook(device, bookPath, data) : false;
 }
 
 function safeUploadFileName(fileName: string): string {

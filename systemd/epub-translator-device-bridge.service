@@ -1,0 +1,15 @@
+[Unit]
+Description=EPUB Translator Kindle device bridge
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/epub-translator
+Environment=PATH=%h/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env pnpm dev:device-bridge
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

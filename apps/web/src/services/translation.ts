@@ -30,6 +30,12 @@ export type EpubMetadata = {
   description: string;
 };
 
+export type EditableDocumentFormat = "epub" | "pdf";
+export type EditableDocumentMetadata = EpubMetadata & {
+  format: EditableDocumentFormat;
+  coverDataUrl: string | null;
+};
+
 type ApiResponse<T> = {
   ok: true;
   data: T;
@@ -136,23 +142,44 @@ export async function updateEpubMetadata(jobId: string, metadata: EpubMetadata):
   return payload.data;
 }
 
-export async function readLocalEpubMetadata(file: File): Promise<EpubMetadata & { coverDataUrl: string | null }> {
+export async function readLocalDocumentMetadata(file: File): Promise<EditableDocumentMetadata> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(`${API_BASE_URL}/api/epub/metadata/read`, { method: "POST", body: formData });
+  const response = await fetch(`${API_BASE_URL}/api/files/metadata/read`, { method: "POST", body: formData });
   if (!response.ok) throw new Error(await readErrorMessage(response));
-  const payload = (await response.json()) as ApiResponse<EpubMetadata & { coverDataUrl: string | null }>;
+  const payload = (await response.json()) as ApiResponse<EditableDocumentMetadata>;
   return payload.data;
 }
 
-export async function updateLocalEpubMetadata(file: File, metadata: EpubMetadata, cover?: File | null): Promise<Blob> {
+export async function updateLocalDocumentMetadata(file: File, metadata: EpubMetadata, cover?: File | null): Promise<Blob> {
   const formData = new FormData();
   formData.append("metadata", JSON.stringify(metadata));
   formData.append("file", file);
   if (cover) formData.append("cover", cover);
-  const response = await fetch(`${API_BASE_URL}/api/epub/metadata/update`, { method: "POST", body: formData });
+  const response = await fetch(`${API_BASE_URL}/api/files/metadata/update`, { method: "POST", body: formData });
   if (!response.ok) throw new Error(await readErrorMessage(response));
   return response.blob();
+}
+
+export async function openWritableLocalDocument(): Promise<{ file: File; fileId: string } | null> {
+  const response = await fetch(`${API_BASE_URL}/api/files/local/open`, { method: "POST" });
+  if (response.status === 204) return null;
+  if (!response.ok) throw new Error(await readErrorMessage(response));
+  const fileId = response.headers.get("x-local-file-id");
+  const fileName = decodeURIComponent(response.headers.get("x-file-name") ?? "book.epub");
+  if (!fileId) throw new Error("No se ha recibido permiso para editar el archivo");
+  const type = fileName.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/epub+zip";
+  return { fileId, file: new File([await response.blob()], fileName, { type }) };
+}
+
+export async function overwriteLocalDocument(fileId: string, file: Blob, fileName: string): Promise<void> {
+  const body = new FormData();
+  body.append("file", file, fileName);
+  const response = await fetch(`${API_BASE_URL}/api/files/local/${encodeURIComponent(fileId)}`, {
+    method: "PUT",
+    body,
+  });
+  if (!response.ok) throw new Error(await readErrorMessage(response));
 }
 
 export async function updateJobEpubCover(jobId: string, cover: File): Promise<void> {
