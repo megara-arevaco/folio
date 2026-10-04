@@ -1,17 +1,19 @@
+import "./environment";
+import { integerSetting } from "./services/shared/limits";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyCors from "@fastify/cors";
 import { translateRoutes } from "./routes/translate";
 import { pdfRoutes } from "./routes/pdf";
 import { jobsRoutes } from "./routes/jobs";
-import { epubMetadataRoutes } from "./routes/epubMetadata";
+import { epubMetadataRoutes, type LocalFiles } from "./routes/epubMetadata";
 import { deviceRoutes } from "./routes/devices";
 import { readingLogRoutes } from "./routes/readingLog";
 import { prepareJobsForShutdown, restoreJobsFromDisk } from "./services/jobs";
 
-export async function createServer(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true });
-  const maxUploadMb = Number.parseInt(process.env.MAX_UPLOAD_MB ?? "100", 10);
+export async function createServer(options: { localFiles?: LocalFiles } = {}): Promise<FastifyInstance> {
+  const app = Fastify({ logger: true, forceCloseConnections: options.localFiles ? true : false });
+  const maxUploadMb = integerSetting("MAX_UPLOAD_MB", 100, 1, 1024);
 
   await app.register(fastifyCors, {
     origin: true,
@@ -19,15 +21,16 @@ export async function createServer(): Promise<FastifyInstance> {
     exposedHeaders: ["X-Local-File-Id", "X-File-Name", "Content-Disposition"],
   });
   await app.register(fastifyMultipart, {
-    limits: { fileSize: maxUploadMb * 1024 * 1024 },
+    limits: { fileSize: maxUploadMb * 1024 * 1024, files: 2, fields: 10, parts: 12 },
   });
   await app.register(translateRoutes);
   await app.register(pdfRoutes);
   await app.register(jobsRoutes);
-  await app.register(epubMetadataRoutes);
+  await app.register(epubMetadataRoutes, { localFiles: options.localFiles });
   await app.register(deviceRoutes);
   await app.register(readingLogRoutes);
   await restoreJobsFromDisk();
+  app.addHook("onClose", prepareJobsForShutdown);
   return app;
 }
 

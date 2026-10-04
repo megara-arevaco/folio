@@ -6,7 +6,7 @@ product
 
 ## Platform
 
-web
+web (Electron desktop)
 
 ## Users
 
@@ -16,7 +16,7 @@ El trabajo principal reúne en un mismo lugar la traducción de EPUB, la convers
 
 ## Product Purpose
 
-EPUB Translator existe para completar de principio a fin el flujo personal de preparación de ebooks. El producto tiene éxito cuando las funciones ya implementadas funcionan bien: son fiables, claras, coherentes entre sí y producen libros terminados y listos para leer.
+Folio existe para completar de principio a fin el flujo personal de preparación de ebooks. El producto tiene éxito cuando las funciones ya implementadas funcionan bien: son fiables, claras, coherentes entre sí y producen libros terminados y listos para leer.
 
 La prioridad es consolidar y mejorar el alcance actual. Añadir funciones nuevas no es una medida de éxito por sí misma.
 

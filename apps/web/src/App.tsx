@@ -375,9 +375,9 @@ function TopNavigation() {
   return (
     <header className="app-header">
       <div className="app-header__inner">
-        <NavLink className="app-brand" to="/translations" aria-label="EPUB Translator" onClick={closeMenu}>
-          <span className="app-brand__mark" aria-hidden="true" />
-          <span className="app-brand__name">mi biblioteca <strong>/ taller</strong></span>
+        <NavLink className="app-brand" to="/translations" aria-label="Folio" onClick={closeMenu}>
+          <img className="app-brand__mark" src="/icon.svg" alt="" />
+          <span className="app-brand__name">Folio <strong>/ tu taller de libros</strong></span>
         </NavLink>
         <button
           type="button"

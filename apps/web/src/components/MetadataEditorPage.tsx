@@ -107,7 +107,7 @@ export function MetadataEditorPage() {
   }
 
   async function openWritableFile() {
-    const picker = (window as FilePickerWindow).showOpenFilePicker;
+    const picker = window.folio?.isDesktop ? undefined : (window as FilePickerWindow).showOpenFilePicker;
     try {
       if (!picker) {
         const selected = await openWritableLocalDocument();

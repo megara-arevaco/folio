@@ -1,11 +1,18 @@
+import { normalizeEpubMetadata } from "../../../../packages/contracts/src";
 import { createReadStream } from "node:fs";
 import { FastifyInstance } from "fastify";
-import { deleteCompletedJobs, deleteJob, getJob, listJobs, pauseActiveJobs, pauseJob, renameJobOutput, reorderQueuedJob, resumeJob, serializeJob, startQueuedJob } from "../services/jobs";
-import { readEpubCover, readEpubMetadata, updateEpubCoverBuffer, updateEpubMetadata, type EpubMetadata } from "../services/epubMetadata";
-import { writeFile } from "node:fs/promises";
+import { deleteCompletedJobs, deleteJob, withJobOperation, getJob, listJobs, pauseActiveJobs, pauseJob, renameJobOutput, reorderQueuedJob, resumeJob, serializeJob, startQueuedJob } from "../services/jobs";
+import { readEpubCover, readEpubMetadata, updateEpubCover, updateEpubMetadata } from "../services/epubMetadata";
+import { once } from "node:events";
 import { attachmentContentDisposition } from "../http";
 
 export async function jobsRoutes(fastify: FastifyInstance) {
+  fastify.addHook("preValidation", async (request, reply) => {
+    const { jobId } = request.params as { jobId?: unknown };
+    if (jobId !== undefined && (typeof jobId !== "string" || !/^[a-zA-Z0-9_-]{1,240}$/.test(jobId))) {
+      return reply.status(400).send({ ok: false, error: "Identificador de trabajo inválido" });
+    }
+  });
   fastify.get("/api/jobs", async (_request, reply) => {
     reply.send({ ok: true, data: listJobs().map(serializeJob) });
   });
@@ -23,67 +30,60 @@ export async function jobsRoutes(fastify: FastifyInstance) {
 
   fastify.get("/api/jobs/:jobId/metadata", async (request, reply) => {
     const { jobId } = request.params as { jobId: string };
-    const job = getJob(jobId);
-    if (!job) return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
-    if (job.kind !== "epub-translation" || job.status !== "done" || !job.outputFileName) {
-      return reply.status(409).send({ ok: false, error: "La traducción aún no tiene un EPUB editable" });
-    }
+    return withJobOperation(jobId, async () => {
+      const job = getJob(jobId);
+      if (!job) return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
+      if (job.kind !== "epub-translation" || job.status !== "done" || !job.outputFileName) {
+        return reply.status(409).send({ ok: false, error: "La traducción aún no tiene un EPUB editable" });
+      }
 
-    reply.send({ ok: true, data: readEpubMetadata(job.outputFilePath) });
+      reply.send({ ok: true, data: readEpubMetadata(job.outputFilePath) });
+    });
   });
 
   fastify.patch("/api/jobs/:jobId/metadata", async (request, reply) => {
     const { jobId } = request.params as { jobId: string };
-    const job = getJob(jobId);
-    if (!job) return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
-    if (job.kind !== "epub-translation" || job.status !== "done" || !job.outputFileName) {
-      return reply.status(409).send({ ok: false, error: "La traducción aún no tiene un EPUB editable" });
-    }
+    return withJobOperation(jobId, async () => {
+      const job = getJob(jobId);
+      if (!job) return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
+      if (job.kind !== "epub-translation" || job.status !== "done" || !job.outputFileName) {
+        return reply.status(409).send({ ok: false, error: "La traducción aún no tiene un EPUB editable" });
+      }
 
-    const body = request.body as Partial<EpubMetadata> | null;
-    if (!body || typeof body.title !== "string" || !Array.isArray(body.authors) ||
-      !body.authors.every((author) => typeof author === "string") ||
-      typeof body.language !== "string" || typeof body.publisher !== "string" ||
-      typeof body.description !== "string") {
-      return reply.status(400).send({ ok: false, error: "Metadatos inválidos" });
-    }
-
-    const metadata: EpubMetadata = {
-      title: body.title.trim(),
-      authors: body.authors.map((author) => author.trim()).filter(Boolean),
-      language: body.language.trim(),
-      publisher: body.publisher.trim(),
-      description: body.description.trim(),
-    };
-    if (!metadata.title || !metadata.language) {
-      return reply.status(400).send({ ok: false, error: "El título y el idioma son obligatorios" });
-    }
-    await updateEpubMetadata(job.outputFilePath, metadata);
-    reply.send({ ok: true, data: metadata });
+      const metadata = normalizeEpubMetadata(request.body);
+      if (!metadata) {
+        return reply.status(400).send({ ok: false, error: "Metadatos inválidos: el título y el idioma son obligatorios" });
+      }
+      await updateEpubMetadata(job.outputFilePath, metadata);
+      reply.send({ ok: true, data: metadata });
+    });
   });
 
   fastify.get("/api/jobs/:jobId/metadata/cover", async (request, reply) => {
     const { jobId } = request.params as { jobId: string };
-    const job = getJob(jobId);
-    if (!job) return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
-    if (job.kind !== "epub-translation" || job.status !== "done") return reply.status(409).send({ ok: false, error: "El EPUB aún no está disponible" });
-    const cover = readEpubCover(job.outputFilePath);
-    if (!cover) return reply.status(404).send({ ok: false, error: "El EPUB no tiene portada" });
-    reply.type(cover.mediaType);
-    return reply.send(cover.data);
+    return withJobOperation(jobId, async () => {
+      const job = getJob(jobId);
+      if (!job) return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
+      if (job.kind !== "epub-translation" || job.status !== "done") return reply.status(409).send({ ok: false, error: "El EPUB aún no está disponible" });
+      const cover = readEpubCover(job.outputFilePath);
+      if (!cover) return reply.status(404).send({ ok: false, error: "El EPUB no tiene portada" });
+      reply.type(cover.mediaType);
+      return reply.send(cover.data);
+    });
   });
 
   fastify.put("/api/jobs/:jobId/metadata/cover", async (request, reply) => {
     const { jobId } = request.params as { jobId: string };
-    const job = getJob(jobId);
-    if (!job) return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
-    if (job.kind !== "epub-translation" || job.status !== "done") return reply.status(409).send({ ok: false, error: "El EPUB aún no está disponible" });
-    const upload = await request.file();
-    const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
-    if (!upload || !allowed.has(upload.mimetype)) return reply.status(400).send({ ok: false, error: "La portada debe ser JPEG, PNG o WebP" });
-    const updated = updateEpubCoverBuffer(job.outputFilePath, { data: await upload.toBuffer(), mediaType: upload.mimetype });
-    await writeFile(job.outputFilePath, updated);
-    reply.status(204).send();
+    return withJobOperation(jobId, async () => {
+      const job = getJob(jobId);
+      if (!job) return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
+      if (job.kind !== "epub-translation" || job.status !== "done") return reply.status(409).send({ ok: false, error: "El EPUB aún no está disponible" });
+      const upload = await request.file();
+      const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
+      if (!upload || !allowed.has(upload.mimetype)) return reply.status(400).send({ ok: false, error: "La portada debe ser JPEG, PNG o WebP" });
+      await updateEpubCover(job.outputFilePath, { data: await upload.toBuffer(), mediaType: upload.mimetype });
+      reply.status(204).send();
+    });
   });
 
   fastify.patch("/api/jobs/:jobId/metadata/filename", async (request, reply) => {
@@ -100,22 +100,26 @@ export async function jobsRoutes(fastify: FastifyInstance) {
 
   fastify.get("/api/jobs/:jobId/download", async (request, reply) => {
     const { jobId } = request.params as { jobId: string };
-    const job = getJob(jobId);
+    return withJobOperation(jobId, async () => {
+      const job = getJob(jobId);
 
-    if (!job) {
-      return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
-    }
+      if (!job) {
+        return reply.status(404).send({ ok: false, error: "Trabajo no encontrado" });
+      }
 
-    if (job.status !== "done" || !job.outputFileName) {
-      return reply.status(409).send({ ok: false, error: "El trabajo aun no esta listo" });
-    }
+      if (job.status !== "done" || !job.outputFileName) {
+        return reply.status(409).send({ ok: false, error: "El trabajo aun no esta listo" });
+      }
 
-    reply.header(
-      "Content-Disposition",
-      attachmentContentDisposition(job.outputFileName),
-    );
-    reply.type("application/epub+zip");
-    return reply.send(createReadStream(job.outputFilePath));
+      reply.header(
+        "Content-Disposition",
+        attachmentContentDisposition(job.outputFileName),
+      );
+      reply.type("application/epub+zip");
+      const stream = createReadStream(job.outputFilePath);
+      await once(stream, "open");
+      return reply.send(stream);
+    });
   });
 
   fastify.delete("/api/jobs/completed", async (_request, reply) => {
@@ -138,7 +142,7 @@ export async function jobsRoutes(fastify: FastifyInstance) {
 
   fastify.patch("/api/jobs/:jobId/queue", async (request, reply) => {
     const { jobId } = request.params as { jobId: string };
-    const { position } = request.body as { position?: unknown };
+    const { position } = (request.body ?? {}) as { position?: unknown };
     if (!Number.isInteger(position) || (position as number) < 0) {
       return reply.status(400).send({ ok: false, error: "Posición de cola inválida" });
     }

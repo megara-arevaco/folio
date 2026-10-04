@@ -33,3 +33,8 @@ npm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Desktop packages and E2E artifacts
+release/
+playwright-report/
+test-results/

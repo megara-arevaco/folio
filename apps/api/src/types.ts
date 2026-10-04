@@ -1,11 +1,5 @@
-export type JobStatus = "pending" | "processing" | "pausing" | "paused" | "done" | "error";
-export type JobKind = "epub-translation" | "pdf-conversion";
-
-export type JobProgress = {
-  current: number;
-  total: number;
-  message: string;
-};
+import type { JobStatus, JobKind, JobProgress } from "../../../packages/contracts/src";
+export type { JobStatus, JobKind, JobProgress, PublicJob } from "../../../packages/contracts/src";
 
 export type GlossaryEntry = {
   source: string;
@@ -34,17 +28,4 @@ export type Job = {
   completedAt: Date | null;
 };
 
-export type PublicJob = {
-  id: string;
-  kind: JobKind;
-  status: JobStatus;
-  progress: JobProgress;
-  inputFileName: string;
-  outputFileName: string | null;
-  error: string | null;
-  createdAt: Date;
-  startedAt: Date | null;
-  completedAt: Date | null;
-  elapsedMs: number;
-  downloadUrl?: string;
-};
+export type TextItem = { id: string; text: string };

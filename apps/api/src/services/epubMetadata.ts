@@ -1,16 +1,10 @@
-import { randomUUID } from "node:crypto";
-import { rename, rm, writeFile } from "node:fs/promises";
-import { dirname, posix, resolve } from "node:path";
-import AdmZip from "adm-zip";
+import { openValidatedZip } from "./shared/zip";
+import { fileOperations, writeFileAtomically } from "./shared/files";
+import type { EpubMetadata } from "../../../../packages/contracts/src";
+export type { EpubMetadata } from "../../../../packages/contracts/src";
+import { posix } from "node:path";
+import type AdmZip from "adm-zip";
 import * as cheerio from "cheerio";
-
-export type EpubMetadata = {
-  title: string;
-  authors: string[];
-  language: string;
-  publisher: string;
-  description: string;
-};
 
 export type EpubCover = { data: Buffer; mediaType: string };
 
@@ -68,7 +62,7 @@ function getCoverEntry(zip: AdmZip): { entryName: string; mediaType: string } | 
 }
 
 export function readEpubCover(epub: string | Buffer): EpubCover | null {
-  const zip = new AdmZip(epub);
+  const zip = openValidatedZip(epub);
   const cover = getCoverEntry(zip);
   if (!cover) return null;
   const entry = zip.getEntry(cover.entryName);
@@ -76,7 +70,7 @@ export function readEpubCover(epub: string | Buffer): EpubCover | null {
 }
 
 export function updateEpubCoverBuffer(epub: string | Buffer, cover: EpubCover): Buffer {
-  const zip = new AdmZip(epub);
+  const zip = openValidatedZip(epub);
   const { entryName: opfPath, $ } = getPackageDocument(zip);
   const metadata = getMetadataElement($);
   const legacyCoverId = metadata.children("meta").filter((_, item) => $(item).attr("name") === "cover").first().attr("content");
@@ -113,7 +107,7 @@ export function updateEpubCoverBuffer(epub: string | Buffer, cover: EpubCover): 
 }
 
 export function readEpubMetadata(epub: string | Buffer): EpubMetadata {
-  const { $ } = getPackageDocument(new AdmZip(epub));
+  const { $ } = getPackageDocument(openValidatedZip(epub));
   const metadata = getMetadataElement($);
   const text = (name: string) => findChildrenByLocalName(metadata, name).first().text().trim();
 
@@ -160,7 +154,7 @@ function replaceMetadataField(
 }
 
 export function updateEpubMetadataBuffer(epub: string | Buffer, values: EpubMetadata): Buffer {
-  const zip = new AdmZip(epub);
+  const zip = openValidatedZip(epub);
   const { entryName, $ } = getPackageDocument(zip);
   const metadata = getMetadataElement($);
   if (!metadata.attr("xmlns:dc")) {
@@ -177,13 +171,14 @@ export function updateEpubMetadataBuffer(epub: string | Buffer, values: EpubMeta
 }
 
 export async function updateEpubMetadata(epubPath: string, values: EpubMetadata): Promise<void> {
-  const updatedEpub = updateEpubMetadataBuffer(epubPath, values);
+  await fileOperations.run(epubPath, async () => {
+    const updatedEpub = updateEpubMetadataBuffer(epubPath, values);
+    await writeFileAtomically(epubPath, updatedEpub);
+  });
+}
 
-  const temporaryPath = resolve(dirname(epubPath), `.${randomUUID()}.epub.tmp`);
-  try {
-    await writeFile(temporaryPath, updatedEpub);
-    await rename(temporaryPath, epubPath);
-  } finally {
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
+export async function updateEpubCover(epubPath: string, cover: EpubCover): Promise<void> {
+  await fileOperations.run(epubPath, async () => {
+    await writeFileAtomically(epubPath, updateEpubCoverBuffer(epubPath, cover));
+  });
 }

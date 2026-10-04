@@ -152,11 +152,9 @@ select {
 }
 
 .app-brand__mark {
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 2.5rem;
+  height: 2.5rem;
   flex: none;
-  border-radius: 999px;
-  background: var(--kinpaku);
 }
 
 .app-brand__name {

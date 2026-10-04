@@ -1,8 +1,8 @@
 {
-  "name": "epub-translator",
+  "name": "folio",
   "version": "0.1.0",
   "description": "Aplicacion de escritorio personal para traducir EPUB y convertir PDF a EPUB",
-  "author": "EPUB Translator",
+  "author": "Folio",
   "private": true,
   "packageManager": "pnpm@10.0.0",
   "type": "module",
@@ -10,40 +10,70 @@
     "dev:api": "EPUB_TRANSLATOR_STANDALONE=true tsx watch apps/api/src/server.ts",
     "dev:web": "vite apps/web --host 0.0.0.0",
     "dev:device-bridge": "tsx scripts/device-bridge.ts",
-    "dev": "vite apps/web --host 0.0.0.0",
-    "build": "vite build apps/web",
-    "test": "node --import tsx --test apps/api/src/**/*.test.ts apps/web/src/**/*.test.ts",
+    "dev": "pnpm build && electron .",
+    "build": "pnpm build:web && node scripts/build-desktop.mjs",
+    "test": "pnpm test:e2e",
+    "check:architecture": "node scripts/check-architecture.mjs",
     "preview": "vite preview apps/web --host 0.0.0.0",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pdf:compare": "node --env-file-if-exists=.env --import tsx scripts/compare-pdf.ts",
+    "check": "pnpm check:architecture && pnpm typecheck && pnpm test && pnpm build",
+    "start": "electron .",
+    "build:web": "vite build apps/web",
+    "test:e2e": "pnpm build && playwright test",
+    "test:e2e:headed": "pnpm build && playwright test --headed",
+    "package": "pnpm build && electron-builder --dir",
+    "dist": "pnpm build && electron-builder",
+    "dist:win": "pnpm build && node scripts/package-windows.mjs",
+    "package:win": "pnpm build && node scripts/package-windows.mjs --dir"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^10.0.0",
-    "@tailwindcss/vite": "^4.3.2",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@fastify/static": "^10.1.5",
     "adm-zip": "^0.5.18",
     "cheerio": "^1.2.0",
-    "daisyui": "^5.6.6",
     "fastify": "^5.9.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.1.200",
     "pngjs": "^7.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-router": "^8.2.0",
-    "tailwindcss": "^4.3.2",
     "tesseract.js": "^7.0.0",
-    "tsx": "^4.22.4",
-    "typescript": "^5.8.0",
-    "uuid": "^14.0.1",
-    "vite": "^7.0.0"
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/adm-zip": "^0.5.8",
     "@types/node": "^26.0.1",
     "@types/pngjs": "^6.0.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/uuid": "^11.0.0"
+    "@types/uuid": "^11.0.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "sharp": "^0.35.5",
+    "@tailwindcss/vite": "^4.3.2",
+    "@vitejs/plugin-react": "^5.0.0",
+    "daisyui": "^5.6.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router": "^8.2.0",
+    "tailwindcss": "^4.3.2",
+    "tsx": "^4.22.4",
+    "typescript": "^5.8.0",
+    "vite": "^7.0.0"
+  },
+  "main": "dist/desktop/main.cjs",
+  "pnpm": {
+    "supportedArchitectures": {
+      "os": [
+        "current",
+        "win32"
+      ],
+      "cpu": [
+        "current",
+        "x64"
+      ]
+    }
   }
 }

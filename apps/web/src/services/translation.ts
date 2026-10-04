@@ -1,64 +1,9 @@
-export type TranslationJobStatus = "pending" | "processing" | "pausing" | "paused" | "done" | "error";
-export type TranslationJobKind = "epub-translation" | "pdf-conversion";
-
-export type TranslationJobProgress = {
-  current: number;
-  total: number;
-  message: string;
-};
-
-export type TranslationJob = {
-  id: string;
-  kind: TranslationJobKind;
-  status: TranslationJobStatus;
-  progress: TranslationJobProgress;
-  inputFileName: string;
-  outputFileName: string | null;
-  error: string | null;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  elapsedMs: number;
-  downloadUrl?: string;
-};
-
-export type EpubMetadata = {
-  title: string;
-  authors: string[];
-  language: string;
-  publisher: string;
-  description: string;
-};
-
-export type EditableDocumentFormat = "epub" | "pdf";
-export type EditableDocumentMetadata = EpubMetadata & {
-  format: EditableDocumentFormat;
-  coverDataUrl: string | null;
-};
-
-type ApiResponse<T> = {
-  ok: true;
-  data: T;
-};
-
-type ApiErrorResponse = {
-  ok: false;
-  error: string;
-};
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
+import type { PublicJob as TranslationJob, EpubMetadata, EditableDocumentMetadata } from "../../../../packages/contracts/src";
+export type { JobStatus as TranslationJobStatus, JobKind as TranslationJobKind, JobProgress as TranslationJobProgress, PublicJob as TranslationJob, EpubMetadata, EditableDocumentFormat, EditableDocumentMetadata } from "../../../../packages/contracts/src";
+import { API_BASE_URL, readApiData, readErrorMessage } from "./http";
 
 export function getEpubCoverUrl(jobId: string): string {
   return `${API_BASE_URL}/api/jobs/${jobId}/metadata/cover`;
-}
-
-async function readErrorMessage(response: Response): Promise<string> {
-  try {
-    const payload = (await response.json()) as ApiErrorResponse;
-    return payload.error;
-  } catch {
-    return "No se ha podido completar la peticion";
-  }
 }
 
 export async function requestEpubTranslation(file: File): Promise<{ jobId: string }> {
@@ -70,12 +15,7 @@ export async function requestEpubTranslation(file: File): Promise<{ jobId: strin
     body: formData,
   });
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  const payload = (await response.json()) as ApiResponse<{ jobId: string }>;
-  return payload.data;
+  return readApiData<{ jobId: string }>(response);
 }
 
 export async function requestPdfConversion(file: File): Promise<{ jobId: string }> {
@@ -87,38 +27,25 @@ export async function requestPdfConversion(file: File): Promise<{ jobId: string 
     body: formData,
   });
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  const payload = (await response.json()) as ApiResponse<{ jobId: string }>;
-  return payload.data;
+  return readApiData<{ jobId: string }>(response);
 }
 
 export async function fetchTranslationJob(jobId: string): Promise<TranslationJob> {
   const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`);
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  const payload = (await response.json()) as ApiResponse<Omit<TranslationJob, "downloadUrl">>;
+  const data = await readApiData<Omit<TranslationJob, "downloadUrl">>(response);
   return {
-    ...payload.data,
+    ...data,
     downloadUrl:
-      payload.data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined,
+      data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined,
   };
 }
 
 export async function fetchTranslationJobs(): Promise<TranslationJob[]> {
   const response = await fetch(`${API_BASE_URL}/api/jobs`);
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  const payload = (await response.json()) as ApiResponse<Array<Omit<TranslationJob, "downloadUrl">>>;
-  return payload.data.map((job) => ({
+  const data = await readApiData<Array<Omit<TranslationJob, "downloadUrl">>>(response);
+  return data.map((job) => ({
     ...job,
     downloadUrl: job.status === "done" ? `${API_BASE_URL}/api/jobs/${job.id}/download` : undefined,
   }));
@@ -126,9 +53,7 @@ export async function fetchTranslationJobs(): Promise<TranslationJob[]> {
 
 export async function fetchEpubMetadata(jobId: string): Promise<EpubMetadata> {
   const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/metadata`);
-  if (!response.ok) throw new Error(await readErrorMessage(response));
-  const payload = (await response.json()) as ApiResponse<EpubMetadata>;
-  return payload.data;
+  return readApiData<EpubMetadata>(response);
 }
 
 export async function updateEpubMetadata(jobId: string, metadata: EpubMetadata): Promise<EpubMetadata> {
@@ -137,18 +62,14 @@ export async function updateEpubMetadata(jobId: string, metadata: EpubMetadata):
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(metadata),
   });
-  if (!response.ok) throw new Error(await readErrorMessage(response));
-  const payload = (await response.json()) as ApiResponse<EpubMetadata>;
-  return payload.data;
+  return readApiData<EpubMetadata>(response);
 }
 
 export async function readLocalDocumentMetadata(file: File): Promise<EditableDocumentMetadata> {
   const formData = new FormData();
   formData.append("file", file);
   const response = await fetch(`${API_BASE_URL}/api/files/metadata/read`, { method: "POST", body: formData });
-  if (!response.ok) throw new Error(await readErrorMessage(response));
-  const payload = (await response.json()) as ApiResponse<EditableDocumentMetadata>;
-  return payload.data;
+  return readApiData<EditableDocumentMetadata>(response);
 }
 
 export async function updateLocalDocumentMetadata(file: File, metadata: EpubMetadata, cover?: File | null): Promise<Blob> {
@@ -195,9 +116,8 @@ export async function renameJobEpub(jobId: string, fileName: string): Promise<st
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fileName }),
   });
-  if (!response.ok) throw new Error(await readErrorMessage(response));
-  const payload = (await response.json()) as ApiResponse<{ fileName: string }>;
-  return payload.data.fileName;
+  const data = await readApiData<{ fileName: string }>(response);
+  return data.fileName;
 }
 
 async function mutateTranslationJob(jobId: string, action: "pause" | "resume"): Promise<TranslationJob> {
@@ -205,15 +125,11 @@ async function mutateTranslationJob(jobId: string, action: "pause" | "resume"): 
     method: "POST",
   });
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  const payload = (await response.json()) as ApiResponse<Omit<TranslationJob, "downloadUrl">>;
+  const data = await readApiData<Omit<TranslationJob, "downloadUrl">>(response);
   return {
-    ...payload.data,
+    ...data,
     downloadUrl:
-      payload.data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined,
+      data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined,
   };
 }
 
@@ -248,12 +164,8 @@ export async function deleteCompletedTranslationJobs(): Promise<number> {
   const response = await fetch(`${API_BASE_URL}/api/jobs/completed`, {
     method: "DELETE",
   });
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  const payload = (await response.json()) as ApiResponse<{ deleted: number }>;
-  return payload.data.deleted;
+  const data = await readApiData<{ deleted: number }>(response);
+  return data.deleted;
 }
 
 export async function reorderTranslationJob(jobId: string, position: number): Promise<TranslationJob> {
@@ -263,15 +175,11 @@ export async function reorderTranslationJob(jobId: string, position: number): Pr
     body: JSON.stringify({ position }),
   });
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  const payload = (await response.json()) as ApiResponse<Omit<TranslationJob, "downloadUrl">>;
+  const data = await readApiData<Omit<TranslationJob, "downloadUrl">>(response);
   return {
-    ...payload.data,
+    ...data,
     downloadUrl:
-      payload.data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined,
+      data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined,
   };
 }
 
@@ -279,14 +187,10 @@ export async function startQueuedTranslationJob(jobId: string): Promise<Translat
   const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/start`, {
     method: "POST",
   });
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  const payload = (await response.json()) as ApiResponse<Omit<TranslationJob, "downloadUrl">>;
+  const data = await readApiData<Omit<TranslationJob, "downloadUrl">>(response);
   return {
-    ...payload.data,
+    ...data,
     downloadUrl:
-      payload.data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined,
+      data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined,
   };
 }

@@ -1,3 +1,4 @@
+import { checkDocumentSize, checkPdfPageCount } from "./shared/limits";
 import * as cheerio from "cheerio";
 import {
   decodePDFRawStream,
@@ -114,7 +115,9 @@ function readCatalogLanguage(pdf: PDFDocument): string {
 }
 
 export async function readPdfMetadata(pdf: Buffer | Uint8Array): Promise<EpubMetadata> {
+  checkDocumentSize(pdf.length);
   const document = await PDFDocument.load(pdf, { updateMetadata: false });
+  checkPdfPageCount(document.getPageCount());
   const xmp = readXmp(document);
   const xmpTitle = readXmpValues(xmp, "title")[0];
   const xmpAuthors = readXmpValues(xmp, "creator");
@@ -136,7 +139,9 @@ export async function updatePdfMetadataBuffer(
   pdf: Buffer | Uint8Array,
   metadata: EpubMetadata,
 ): Promise<Buffer> {
+  checkDocumentSize(pdf.length);
   const document = await PDFDocument.load(pdf, { updateMetadata: false });
+  checkPdfPageCount(document.getPageCount());
   if (document.getForm().getFields().some((field) => field instanceof PDFSignature)) {
     throw new Error("El PDF contiene una firma digital");
   }

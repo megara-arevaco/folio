@@ -1,15 +1,16 @@
+import type { TextItem } from "../types";
+export type { TextItem } from "../types";
+import { integerSetting } from "./shared/limits";
+import { readBoundedBody, readBoundedJson } from "./shared/network";
 import type { GlossaryEntry } from "../types";
 
-export type TextItem = {
-  id: string;
-  text: string;
-};
+
 
 const LLM_MOCK = process.env.LLM_MOCK === "true";
 const LLM_API_BASE_URL = process.env.LLM_API_BASE_URL ?? "";
 const LLM_API_KEY = process.env.LLM_API_KEY ?? "";
 const LLM_MODEL = process.env.LLM_MODEL ?? "";
-const LLM_TIMEOUT_MS = parseInt(process.env.LLM_TIMEOUT_MS ?? "120000", 10);
+const LLM_TIMEOUT_MS = integerSetting("LLM_TIMEOUT_MS", 120000, 1000, 900000);
 const OPENROUTER_SITE_URL = process.env.OPENROUTER_SITE_URL ?? "";
 const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME ?? "";
 
@@ -213,13 +214,13 @@ async function callLLM(
     });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => "");
+      const body = await readBoundedBody(response, 1024 * 1024).then((body) => body.toString("utf8")).catch(() => "");
       throw new Error(
         `API LLM respondio con ${response.status}: ${body.slice(0, 200)}`
       );
     }
 
-    const data = (await response.json()) as {
+    const data = (await readBoundedJson(response)) as {
       choices: { message: { content: string } }[];
     };
 
@@ -269,7 +270,7 @@ async function callJsonLLM(system: string, user: string): Promise<unknown> {
     if (!response.ok) {
       throw new Error(`API LLM respondio con ${response.status}`);
     }
-    const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+    const data = (await readBoundedJson(response)) as { choices?: { message?: { content?: string } }[] };
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error("Respuesta del LLM sin contenido");
     return parseJsonContent(content);

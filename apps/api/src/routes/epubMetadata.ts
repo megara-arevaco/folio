@@ -1,3 +1,6 @@
+import { fetchWithDeadline, readBoundedBody, readBoundedJson } from "../services/shared/network";
+import { maxDocumentBytes } from "../services/shared/limits";
+import { normalizeEpubMetadata } from "../../../../packages/contracts/src";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { attachmentContentDisposition } from "../http";
 import { readEpubCover, readEpubMetadata, updateEpubCoverBuffer, updateEpubMetadataBuffer, type EpubMetadata } from "../services/epubMetadata";
@@ -29,19 +32,7 @@ function pdfErrorMessage(error: unknown): string {
 function parseMetadata(value: unknown, requireLanguage: boolean): EpubMetadata | null {
   if (typeof value !== "string") return null;
   try {
-    const metadata = JSON.parse(value) as Partial<EpubMetadata>;
-    if (typeof metadata.title !== "string" || !Array.isArray(metadata.authors) ||
-      !metadata.authors.every((author) => typeof author === "string") ||
-      typeof metadata.language !== "string" || typeof metadata.publisher !== "string" ||
-      typeof metadata.description !== "string") return null;
-    const normalized = {
-      title: metadata.title.trim(),
-      authors: metadata.authors.map((author) => author.trim()).filter(Boolean),
-      language: metadata.language.trim(),
-      publisher: metadata.publisher.trim(),
-      description: metadata.description.trim(),
-    };
-    return normalized.title && (!requireLanguage || normalized.language) ? normalized : null;
+    return normalizeEpubMetadata(JSON.parse(value), requireLanguage);
   } catch {
     return null;
   }
@@ -126,15 +117,31 @@ async function updateMetadata(request: FastifyRequest, reply: FastifyReply) {
   return reply.send(updated);
 }
 
-export async function epubMetadataRoutes(fastify: FastifyInstance) {
+export type LocalFiles = {
+  open: () => Promise<{ id: string; name: string; data: Buffer } | null>;
+  overwrite: (id: string, data: Buffer) => Promise<void>;
+};
+
+export async function epubMetadataRoutes(fastify: FastifyInstance, options: { localFiles?: LocalFiles } = {}) {
   fastify.post("/api/files/local/open", async (_request, reply) => {
+    if (options.localFiles) {
+      try {
+        const file = await options.localFiles.open();
+        if (!file) return reply.status(204).send();
+        reply.header("X-Local-File-Id", file.id);
+        reply.header("X-File-Name", encodeURIComponent(file.name));
+        return reply.type("application/octet-stream").send(file.data);
+      } catch (error) {
+        return reply.status(409).send({ ok: false, error: error instanceof Error ? error.message : "No se ha podido abrir el archivo" });
+      }
+    }
     const bridgeUrl = process.env.DEVICE_BRIDGE_URL;
     if (!bridgeUrl) return reply.status(503).send({ ok: false, error: "El selector local no está disponible" });
     try {
-      const response = await fetch(`${bridgeUrl}/local-file/open`, {
+      const response = await fetchWithDeadline(`${bridgeUrl}/local-file/open`, {
         method: "POST",
         headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" },
-      });
+      }, 10 * 60 * 1000);
       if (response.status === 204) return reply.status(204).send();
       if (!response.ok) return reply.status(502).send({ ok: false, error: "No se ha podido abrir el selector local" });
       const fileId = response.headers.get("x-local-file-id");
@@ -143,7 +150,7 @@ export async function epubMetadataRoutes(fastify: FastifyInstance) {
       reply.header("X-Local-File-Id", fileId);
       reply.header("X-File-Name", encodeURIComponent(fileName));
       reply.type("application/octet-stream");
-      return reply.send(Buffer.from(await response.arrayBuffer()));
+      return reply.send(Buffer.from(await readBoundedBody(response, maxDocumentBytes())));
     } catch {
       return reply.status(503).send({ ok: false, error: "El puente de archivos local no está disponible" });
     }
@@ -153,13 +160,21 @@ export async function epubMetadataRoutes(fastify: FastifyInstance) {
     const { fileId } = request.params as { fileId: string };
     const upload = await request.file();
     if (!upload) return reply.status(400).send({ ok: false, error: "Falta el archivo editado" });
+    if (options.localFiles) {
+      try {
+        await options.localFiles.overwrite(fileId, await upload.toBuffer());
+        return reply.status(204).send();
+      } catch (error) {
+        return reply.status(409).send({ ok: false, error: error instanceof Error ? error.message : "No se ha podido guardar el archivo" });
+      }
+    }
     const bridgeUrl = process.env.DEVICE_BRIDGE_URL;
     if (!bridgeUrl) return reply.status(503).send({ ok: false, error: "La escritura local no está disponible" });
     try {
       const data = await upload.toBuffer();
       const payload = new Uint8Array(data.byteLength);
       payload.set(data);
-      const response = await fetch(`${bridgeUrl}/local-file/${encodeURIComponent(fileId)}`, {
+      const response = await fetchWithDeadline(`${bridgeUrl}/local-file/${encodeURIComponent(fileId)}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/octet-stream",

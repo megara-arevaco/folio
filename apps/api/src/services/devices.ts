@@ -1,33 +1,30 @@
+import { fileOperations } from "./shared/files";
+import { checkDocumentSize, LimitedOperations } from "./shared/limits";
+import type { DeviceBook, EbookDevice as PublicEbookDevice } from "../../../../packages/contracts/src";
+export type { DeviceBook } from "../../../../packages/contracts/src";
 import { createHash, randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
-import { mkdtemp, open, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { execFile, type ExecFileOptions } from "node:child_process";
+import { mkdtemp, open, readdir, realpath, rename, rm, stat, writeFile, link } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep, delimiter } from "node:path";
 import { promisify } from "node:util";
 import { readEpubMetadata } from "./epubMetadata";
 
-export type DeviceBook = {
-  path: string;
-  fileName: string;
-  title: string;
-  authors: string[];
-  size: number;
-  modifiedAt: string;
-  format: string;
-};
-
-export type EbookDevice = { id: string; name: string; root: string; books: DeviceBook[] };
+export type EbookDevice = PublicEbookDevice & { root: string };
 
 const MAX_BOOKS = 1000;
 const MAX_DEPTH = 10;
 const EBOOK_EXTENSIONS = new Set(["epub", "kfx", "azw", "azw3", "mobi", "pdf"]);
 const SKIP_DIRECTORIES = new Set([".cache", "system", "fonts", "voice", "audible", "screenshots"]);
 const STAT_CONCURRENCY = 12;
-const execFileAsync = promisify(execFile);
+const rawExecFileAsync = promisify(execFile);
+const transfers = new LimitedOperations(2);
+const execFileAsync = (file: string, args: string[], options: ExecFileOptions) => transfers.run(() => rawExecFileAsync(file, args, options));
 
 function configuredRoots(): string[] {
-  const value = process.env.EBOOK_DEVICE_ROOTS ?? `/media:/run/user/${process.getuid?.() ?? 1000}/gvfs`;
-  return value.split(":").map((item) => item.trim()).filter(Boolean).map((item) => resolve(item));
+  const defaults = process.platform === "win32" ? "" : `/media:/run/user/${process.getuid?.() ?? 1000}/gvfs`;
+  const value = process.env.EBOOK_DEVICE_ROOTS ?? defaults;
+  return value.split(delimiter).map((item) => item.trim()).filter(Boolean).map((item) => resolve(item));
 }
 
 function deviceId(root: string): string {
@@ -231,20 +228,29 @@ export async function resolveKnownDeviceBook(device: EbookDevice, bookPath: stri
 }
 
 export async function deleteDeviceBook(deviceIdValue: string, bookPath: string): Promise<boolean> {
-  const book = await resolveDeviceBook(deviceIdValue, bookPath);
-  if (!book) return false;
-  await rm(book.path);
-  return true;
+  const device = (await listEbookDevices()).find((item) => item.id === deviceIdValue);
+  return device ? deleteKnownDeviceBook(device, bookPath) : false;
 }
 
 export async function deleteKnownDeviceBook(device: EbookDevice, bookPath: string): Promise<boolean> {
   const book = await resolveKnownDeviceBook(device, bookPath);
   if (!book) return false;
-  await rm(book.path);
-  return true;
+  return fileOperations.run(book.path, async () => {
+    const current = await resolveKnownDeviceBook(device, bookPath);
+    if (!current) return false;
+    await rm(current.path);
+    return true;
+  });
 }
 
 export async function replaceKnownDeviceBook(device: EbookDevice, bookPath: string, data: Buffer): Promise<boolean> {
+  checkDocumentSize(data.length);
+  const book = await resolveKnownDeviceBook(device, bookPath);
+  if (!book) return false;
+  return fileOperations.run(book.path, () => replaceKnownDeviceBookUnlocked(device, bookPath, data));
+}
+
+async function replaceKnownDeviceBookUnlocked(device: EbookDevice, bookPath: string, data: Buffer): Promise<boolean> {
   const book = await resolveKnownDeviceBook(device, bookPath);
   if (!book) return false;
   const isGvfsMtp = device.root.split(sep).some((part) => part === "gvfs") || basename(device.root).startsWith("mtp:host=");
@@ -288,10 +294,19 @@ function safeUploadFileName(fileName: string): string {
 }
 
 async function isDirectory(path: string): Promise<boolean> {
-  try { return (await stat(path)).isDirectory(); } catch { return false; }
+  try { return (await stat(path)).isDirectory(); } catch (error) {
+    if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+    throw error;
+  }
 }
 
 async function uploadDirectory(device: EbookDevice): Promise<string> {
+  const root = await realpath(device.root);
+  const confined = async (directory: string) => {
+    const canonical = await realpath(directory);
+    if (canonical !== root && !canonical.startsWith(root + sep)) throw new Error("La carpeta de subida está fuera del dispositivo");
+    return canonical;
+  };
   const commonDirectories = [
     "Internal Storage/documents/Downloads/Items01",
     "Internal storage/documents/Downloads/Items01",
@@ -302,11 +317,11 @@ async function uploadDirectory(device: EbookDevice): Promise<string> {
   ];
   for (const directory of commonDirectories) {
     const candidate = resolve(device.root, directory);
-    if (await isDirectory(candidate)) return candidate;
+    if (await isDirectory(candidate)) return confined(candidate);
   }
 
   const existingBookDirectory = device.books[0] ? dirname(resolve(device.root, device.books[0].path)) : device.root;
-  return await isDirectory(existingBookDirectory) ? existingBookDirectory : device.root;
+  return confined(await isDirectory(existingBookDirectory) ? existingBookDirectory : device.root);
 }
 
 async function availableUploadPath(directory: string, fileName: string): Promise<string> {
@@ -315,15 +330,23 @@ async function availableUploadPath(directory: string, fileName: string): Promise
   for (let copy = 1; copy < 10_000; copy++) {
     const candidateName = copy === 1 ? fileName : `${stem} (${copy})${extension}`;
     const candidate = resolve(directory, candidateName);
-    try { await stat(candidate); } catch { return candidate; }
+    try { await stat(candidate); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return candidate;
+      throw error;
+    }
   }
   throw new Error("No se ha podido encontrar un nombre libre en el dispositivo");
 }
 
 export async function uploadKnownDeviceBook(device: EbookDevice, fileName: string, data: Buffer): Promise<{ path: string; fileName: string }> {
+  checkDocumentSize(data.length);
+  return fileOperations.run(`device-upload:${await realpath(device.root)}`, () => uploadKnownDeviceBookUnlocked(device, fileName, data));
+}
+
+async function uploadKnownDeviceBookUnlocked(device: EbookDevice, fileName: string, data: Buffer): Promise<{ path: string; fileName: string }> {
   const safeName = safeUploadFileName(fileName);
   const directory = await uploadDirectory(device);
-  const destination = await availableUploadPath(directory, safeName);
+  let destination = await availableUploadPath(directory, safeName);
   const isGvfsMtp = device.root.split(sep).some((part) => part === "gvfs") || basename(device.root).startsWith("mtp:host=");
   if (isGvfsMtp) {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), "kindle-copy-"));
@@ -338,7 +361,17 @@ export async function uploadKnownDeviceBook(device: EbookDevice, fileName: strin
       await rm(temporaryDirectory, { recursive: true, force: true });
     }
   } else {
-    await writeFile(destination, data);
+    const temporaryPath = join(directory, `.${randomUUID()}.upload`);
+    try {
+      await writeFile(temporaryPath, data, { flag: "wx" });
+      for (let attempt = 0; ; attempt++) {
+        try { await link(temporaryPath, destination); break; }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 9999) throw error;
+          destination = await availableUploadPath(directory, safeName);
+        }
+      }
+    } finally { await rm(temporaryPath, { force: true }).catch(() => undefined); }
   }
   return {
     path: relative(device.root, destination).split(sep).join("/"),

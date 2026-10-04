@@ -1,13 +1,16 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { writeFileAtomically } from "./shared/files";
+import { readDocument, checkPdfPageCount, integerSetting } from "./shared/limits";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { randomUUID, createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import AdmZip from "adm-zip";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createWorker, type Worker } from "tesseract.js";
 import type { JobProgress } from "../types";
 import { PauseRequestedError } from "./epub";
+import { processPdfWithOpenRouter } from "./pdfOpenRouter";
 
 export type PdfSectionBlock =
   | { type: "paragraph"; text: string }
@@ -35,6 +38,9 @@ export type PdfDocumentStructure = {
 export type ProcessPdfOptions = {
   onProgress?: (progress: JobProgress) => void;
   shouldPause?: () => boolean;
+  inputFileName?: string;
+  cacheDir?: string;
+  onCheckpoint?: (completedPages: number, totalPages: number) => void | Promise<void>;
 };
 
 type PdfTextItem = {
@@ -413,10 +419,17 @@ async function ocrPage(
   const outputBase = join(tempDir, `page-${pageNumber}`);
   try {
     const command = process.env.PDF_RENDER_COMMAND ?? "pdftoppm";
-    await execFileAsync(command, ["-png", "-r", "160", "-f", String(pageNumber), "-l", String(pageNumber), "-singlefile", pdfPath, outputBase]);
+    await execFileAsync(command, ["-png", "-scale-to", "2400", "-f", String(pageNumber), "-l", String(pageNumber), "-singlefile", pdfPath, outputBase], { timeout: integerSetting("PDF_OCR_TIMEOUT_MS", 120000, 1000, 900000), maxBuffer: 1024 * 1024 });
     const image = await readFile(`${outputBase}.png`);
-    const result = await worker.recognize(image);
-    return result.data.text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        reject(new Error("El OCR ha superado el tiempo permitido"));
+        void worker.terminate().catch(() => undefined);
+      }, integerSetting("PDF_OCR_TIMEOUT_MS", 120000, 1000, 900000));
+    });
+    const result = await Promise.race([worker.recognize(image), deadline]).finally(() => clearTimeout(timeout));
+    return result.data.text.split(/\r?\n/).map((line) => line.trim());
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -455,10 +468,25 @@ export async function processPdfToEpub(
   pdfPath: string,
   options: ProcessPdfOptions = {},
 ): Promise<Buffer> {
+  const provider = process.env.PDF_CONVERSION_PROVIDER || "openrouter";
+  if (provider === "openrouter") return processPdfWithOpenRouter(pdfPath, options);
+  if (provider === "local") return processLocalPdfToEpub(pdfPath, options);
+  throw new Error("PDF_CONVERSION_PROVIDER debe ser openrouter o local");
+}
+
+async function processLocalPdfToEpub(
+  pdfPath: string,
+  options: ProcessPdfOptions = {},
+): Promise<Buffer> {
   const { onProgress, shouldPause } = options;
   const enableOcr = process.env.PDF_OCR !== "false";
   const ocrLanguage = process.env.PDF_OCR_LANG ?? "eng";
-  const pdfData = new Uint8Array(await readFile(pdfPath));
+  const buffer = await readDocument(pdfPath);
+  const fingerprint = createHash("sha256").update(buffer).update(JSON.stringify({ version: 1, enableOcr, ocrLanguage,
+    renderer: process.env.PDF_RENDER_COMMAND ?? "pdftoppm", tessdata: process.env.TESSDATA_PREFIX ?? process.cwd() })).digest("hex");
+  const cacheDir = join(options.cacheDir ?? join(dirname(pdfPath), "pdf-local-cache"), fingerprint);
+  await mkdir(cacheDir, { recursive: true });
+  const pdfData = new Uint8Array(buffer);
   const loadingTask = getDocument({
     data: pdfData,
     useWorkerFetch: false,
@@ -470,6 +498,7 @@ export async function processPdfToEpub(
 
   try {
     const pdfDocument = await loadingTask.promise;
+    checkPdfPageCount(pdfDocument.numPages);
     const pageParagraphs: string[][] = [];
 
     onProgress?.(getPdfProgress(0, pdfDocument.numPages, "Leyendo PDF"));
@@ -479,6 +508,21 @@ export async function processPdfToEpub(
         throw new PauseRequestedError();
       }
 
+      const checkpointPath = join(cacheDir, `page-${pageIndex + 1}.json`);
+      let cached: string[] | null = null;
+      try {
+        const value: unknown = JSON.parse(await readFile(checkpointPath, "utf8"));
+        if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("Checkpoint PDF local inválido; se conserva para revisión");
+        cached = value;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (cached) {
+        pageParagraphs.push(cached);
+        onProgress?.(getPdfProgress(pageIndex + 1, pdfDocument.numPages, `Página ${pageIndex + 1} recuperada`));
+        await options.onCheckpoint?.(pageIndex + 1, pdfDocument.numPages);
+        continue;
+      }
       const page = await pdfDocument.getPage(pageIndex + 1);
       const textContent = await page.getTextContent();
       let paragraphs = extractParagraphsFromTextItems(textContent.items as PdfTextItem[]);
@@ -500,15 +544,18 @@ export async function processPdfToEpub(
 
       onProgress?.(
         getPdfProgress(
-          pageIndex,
+          pageIndex + 1,
           pdfDocument.numPages,
           `Analizando pagina ${pageIndex + 1} de ${pdfDocument.numPages}`,
         ),
       );
 
+      await writeFileAtomically(checkpointPath, JSON.stringify(paragraphs));
       pageParagraphs.push(paragraphs);
+      await options.onCheckpoint?.(pageIndex + 1, pdfDocument.numPages);
     }
 
+    if (shouldPause?.()) throw new PauseRequestedError();
     const cleanedPages = stripRepeatedPageFooters(stripRepeatedPageHeaders(pageParagraphs));
     if (cleanedPages.every((page) => page.length === 0)) {
       throw new Error("No se pudo extraer texto del PDF");
@@ -523,7 +570,7 @@ export async function processPdfToEpub(
 
     const metadata = await pdfDocument.getMetadata().catch(() => null);
     const info = metadata?.info as { Title?: string; Author?: string; Lang?: string } | undefined;
-    const title = info?.Title?.trim() || pdfPath.split("/").pop()?.replace(/\.pdf$/i, "") || "Documento convertido";
+    const title = info?.Title?.trim() || (options.inputFileName || pdfPath.split("/").pop())?.replace(/\.pdf$/i, "") || "Documento convertido";
 
     return buildPdfEpub({
       title,
@@ -532,7 +579,7 @@ export async function processPdfToEpub(
       sections,
     });
   } finally {
-    if (typeof ocrWorker !== "undefined" && ocrWorker) await ocrWorker.terminate();
+    if (typeof ocrWorker !== "undefined" && ocrWorker) await ocrWorker.terminate().catch(() => undefined);
     await loadingTask.destroy();
   }
 }

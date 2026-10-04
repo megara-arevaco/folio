@@ -1,3 +1,6 @@
+import { parsePublicDevices } from "../../../../packages/contracts/src/devices";
+import { fetchWithDeadline, readBoundedBody, readBoundedJson } from "../services/shared/network";
+import { maxDocumentBytes } from "../services/shared/limits";
 import { createReadStream } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import { attachmentContentDisposition } from "../http";
@@ -5,15 +8,28 @@ import { deleteDeviceBook, listEbookDevices, replaceDeviceBook, resolveDeviceBoo
 import { prepareKindleUpload } from "../services/kindle";
 
 export async function deviceRoutes(fastify: FastifyInstance) {
+  fastify.addHook("preValidation", async (request, reply) => {
+    const { deviceId } = request.params as { deviceId?: unknown };
+    const { path } = request.query as { path?: unknown };
+    if (deviceId !== undefined && (typeof deviceId !== "string" || !/^[a-zA-Z0-9_-]{1,240}$/.test(deviceId)) ||
+      path !== undefined && (typeof path !== "string" || !path || path.length > 4096 || path.includes("\0"))) {
+      return reply.status(400).send({ ok: false, error: "Dispositivo o ruta inválidos" });
+    }
+  });
   fastify.get("/api/devices", async (_request, reply) => {
     const bridgeUrl = process.env.DEVICE_BRIDGE_URL;
     if (bridgeUrl) {
       try {
-        const response = await fetch(`${bridgeUrl}/devices`, { headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
-        if (response.ok) return reply.send(await response.json());
+        const response = await fetchWithDeadline(`${bridgeUrl}/devices`, { headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
+        if (response.ok) {
+          const payload = await readBoundedJson(response) as { ok?: unknown; data?: unknown } | null;
+          const devices = payload?.ok === true ? parsePublicDevices(payload.data) : null;
+          if (!devices) throw new Error("Respuesta de dispositivos inválida");
+          return reply.send({ ok: true, data: devices });
+        }
       } catch { /* Fall back to mounts visible inside the API container. */ }
     }
-    return reply.send({ ok: true, data: await listEbookDevices() });
+    return reply.send({ ok: true, data: (await listEbookDevices()).map(({ id, name, books }) => ({ id, name, books })) });
   });
 
   fastify.get("/api/devices/:deviceId/books/download", async (request, reply) => {
@@ -24,12 +40,12 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     if (bridgeUrl) {
       try {
         const url = `${bridgeUrl}/devices/${encodeURIComponent(deviceId)}/book?path=${encodeURIComponent(path)}`;
-        const response = await fetch(url, { headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
+        const response = await fetchWithDeadline(url, { headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
         if (response.ok && response.body) {
           const fileName = decodeURIComponent(response.headers.get("x-file-name") ?? "book.epub").replace(/["\r\n]/g, "-");
           reply.header("Content-Disposition", attachmentContentDisposition(fileName));
           reply.type("application/octet-stream");
-          return reply.send(Buffer.from(await response.arrayBuffer()));
+          return reply.send(Buffer.from(await readBoundedBody(response, maxDocumentBytes())));
         }
       } catch { /* Fall back to a directly mounted device. */ }
     }
@@ -58,7 +74,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
         const bridgePayload = new Uint8Array(data.byteLength);
         bridgePayload.set(data);
         const url = `${bridgeUrl}/devices/${encodeURIComponent(deviceId)}/book`;
-        const response = await fetch(url, {
+        const response = await fetchWithDeadline(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/octet-stream",
@@ -67,11 +83,13 @@ export async function deviceRoutes(fastify: FastifyInstance) {
           },
           body: bridgePayload,
         });
-        const detail = await response.json().catch(() => null) as { data?: { path: string; fileName: string }; error?: string } | null;
+        const detail = await readBoundedJson(response).catch(() => null) as { data?: { path: string; fileName: string }; error?: string } | null;
         if (response.ok && detail?.data) return reply.status(201).send({ ok: true, data: detail.data });
         if (response.status === 404) return reply.status(404).send({ ok: false, error: "Dispositivo no encontrado" });
         return reply.status(response.status === 400 ? 400 : 409).send({ ok: false, error: detail?.error ?? "El Kindle ha rechazado el archivo" });
-      } catch { /* Fall back to a directly mounted writable device. */ }
+      } catch {
+        return reply.status(502).send({ ok: false, error: "No se ha podido confirmar la operación en el dispositivo; comprueba el resultado antes de reintentarlo" });
+      }
     }
     try {
       const result = await uploadDeviceBook(deviceId, fileName, data);
@@ -95,7 +113,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
         const bridgePayload = new Uint8Array(data.byteLength);
         bridgePayload.set(data);
         const url = `${bridgeUrl}/devices/${encodeURIComponent(deviceId)}/book?path=${encodeURIComponent(path)}`;
-        const response = await fetch(url, {
+        const response = await fetchWithDeadline(url, {
           method: "PUT",
           headers: {
             "Content-Type": "application/octet-stream",
@@ -105,9 +123,11 @@ export async function deviceRoutes(fastify: FastifyInstance) {
         });
         if (response.status === 204) return reply.status(204).send();
         if (response.status === 404) return reply.status(404).send({ ok: false, error: "Libro no encontrado en el dispositivo" });
-        const detail = await response.json().catch(() => null) as { error?: string } | null;
+        const detail = await readBoundedJson(response).catch(() => null) as { error?: string } | null;
         return reply.status(409).send({ ok: false, error: detail?.error ?? "El Kindle ha rechazado la sobrescritura" });
-      } catch { /* Fall back to a directly mounted writable device. */ }
+      } catch {
+        return reply.status(502).send({ ok: false, error: "No se ha podido confirmar la operación en el dispositivo; comprueba el resultado antes de reintentarlo" });
+      }
     }
     try {
       if (await replaceDeviceBook(deviceId, path, data)) return reply.status(204).send();
@@ -125,12 +145,14 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     if (bridgeUrl) {
       try {
         const url = `${bridgeUrl}/devices/${encodeURIComponent(deviceId)}/book?path=${encodeURIComponent(path)}`;
-        const response = await fetch(url, { method: "DELETE", headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
+        const response = await fetchWithDeadline(url, { method: "DELETE", headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
         if (response.status === 204) return reply.status(204).send();
         if (response.status === 404) return reply.status(404).send({ ok: false, error: "Libro no encontrado en el dispositivo" });
-        const detail = await response.json().catch(() => null) as { error?: string } | null;
+        const detail = await readBoundedJson(response).catch(() => null) as { error?: string } | null;
         return reply.status(409).send({ ok: false, error: detail?.error ?? "El Kindle ha rechazado el borrado" });
-      } catch { /* Fall back to a directly mounted writable device. */ }
+      } catch {
+        return reply.status(502).send({ ok: false, error: "No se ha podido confirmar la operación en el dispositivo; comprueba el resultado antes de reintentarlo" });
+      }
     }
     try {
       if (await deleteDeviceBook(deviceId, path)) return reply.status(204).send();

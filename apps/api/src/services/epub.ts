@@ -1,4 +1,6 @@
-import AdmZip from "adm-zip";
+import type { TextItem } from "../types";
+export type { TextItem } from "../types";
+import { openValidatedZip } from "./shared/zip";
 import * as cheerio from "cheerio";
 import { GlossaryEntry, JobProgress } from "../types";
 import { generateGlossary, reviewTranslationBatch, translateWithRetry } from "./llm";
@@ -10,10 +12,7 @@ type AnyNode = {
   data?: string;
 };
 
-export type TextItem = {
-  id: string;
-  text: string;
-};
+
 
 const SKIP_TAGS = new Set(["script", "style", "svg", "code", "pre"]);
 const MAX_CHARS_PER_BATCH = 2500;
@@ -175,7 +174,7 @@ export async function processEpub(
     onChapterCheckpoint,
     enableReview = false,
   } = options;
-  const zip = new AdmZip(epubPath);
+  const zip = openValidatedZip(epubPath);
   const entries = zip.getEntries();
 
   const htmlEntries = entries.filter(
@@ -209,6 +208,14 @@ export async function processEpub(
     fileMaps.set(entry.entryName, { items, cheerioRoot: $, isXml });
   }
 
+  if (!Number.isInteger(startBatchIndex) || startBatchIndex < 0 || startBatchIndex > batches.length) {
+    throw new Error("La posición del checkpoint EPUB no corresponde al documento");
+  }
+  const completedItems = batches.slice(0, startBatchIndex).flat();
+  validateTranslation(completedItems, translatedItemsCheckpoint);
+  if (completedItems.some((item, index) => item.id !== translatedItemsCheckpoint[index]?.id)) {
+    throw new Error("El orden del checkpoint EPUB no corresponde al documento");
+  }
   const translatedItems: TextItem[] = [...translatedItemsCheckpoint];
   let activeGlossary = glossary;
   if (activeGlossary.length === 0) {

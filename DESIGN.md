@@ -1,5 +1,5 @@
 ---
-name: EPUB Translator — Biblioteca Taller
+name: Folio — Biblioteca Taller
 description: Un taller editorial claro, inspirado en una biblioteca personal, con marco nogal y superficies marfil.
 colors:
   canvas: "oklch(57% 0.06 64)"
@@ -99,7 +99,7 @@ components:
     padding: "24px"
 ---
 
-# Design System: EPUB Translator — Biblioteca Taller
+# Design System: Folio — Biblioteca Taller
 
 ## Dirección
 

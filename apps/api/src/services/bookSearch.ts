@@ -1,13 +1,6 @@
-export type BookCandidate = {
-  openLibraryKey: string | null;
-  title: string;
-  authors: string[];
-  coverUrl: string | null;
-  firstPublishYear: number | null;
-  isbn: string | null;
-  categories: string[];
-};
-
+import { readBoundedJson } from "./shared/network";
+import type { BookCandidate } from "../../../../packages/contracts/src";
+export type { BookCandidate } from "../../../../packages/contracts/src";
 type GoogleVolume = {
   id?: string;
   volumeInfo?: {
@@ -123,8 +116,9 @@ async function searchOpenLibrary(query: string): Promise<BookCandidate[]> {
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) throw new Error(`Open Library respondió con ${response.status}`);
-  const payload = await response.json() as { docs?: Array<Record<string, unknown>> };
-  return (payload.docs ?? []).map((doc) => ({
+  const payload = await readBoundedJson(response, 2 * 1024 * 1024) as { docs?: unknown } | null;
+  if (!payload || (payload.docs !== undefined && !Array.isArray(payload.docs))) throw new Error("Respuesta de Open Library inválida");
+  return ((payload.docs ?? []) as Array<Record<string, unknown>>).filter((doc) => !!doc && typeof doc === "object").slice(0, 12).map((doc) => ({
     openLibraryKey: cleanText(doc.key),
     title: cleanText(doc.title) ?? "Sin título",
     authors: cleanStringArray(doc.author_name),
@@ -146,7 +140,9 @@ async function searchGoogleBooks(query: string): Promise<BookCandidate[]> {
   if (apiKey) url.searchParams.set("key", apiKey);
   const response = await fetch(url, { signal: AbortSignal.timeout(8_000) });
   if (!response.ok) throw new Error(`Google Books respondió con ${response.status}`);
-  return mapGoogleBooksPayload(await response.json() as GoogleBooksPayload);
+  const payload = await readBoundedJson(response, 2 * 1024 * 1024) as GoogleBooksPayload | null;
+  if (!payload || payload.items !== undefined && !Array.isArray(payload.items)) throw new Error("Respuesta de Google Books inválida");
+  return mapGoogleBooksPayload({ ...payload, items: payload.items?.filter((item) => !!item && typeof item === "object").slice(0, 12) });
 }
 
 function interleave(first: BookCandidate[], second: BookCandidate[]): BookCandidate[] {

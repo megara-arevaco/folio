@@ -1,9 +1,11 @@
+import { maxDocumentBytes, readDocument } from "../apps/api/src/services/shared/limits";
+import { fileOperations, writeFileAtomically } from "../apps/api/src/services/shared/files";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, extname } from "node:path";
 import { promisify } from "node:util";
 import { deleteKnownDeviceBook, listEbookDevices, replaceKnownDeviceBook, resolveKnownDeviceBook, uploadKnownDeviceBook } from "../apps/api/src/services/devices";
 
@@ -11,7 +13,7 @@ const port = Number.parseInt(process.env.DEVICE_BRIDGE_PORT ?? "3002", 10);
 const token = process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge";
 const CACHE_TTL_MS = 60_000;
 let deviceCache: { createdAt: number; data: Awaited<ReturnType<typeof listEbookDevices>> } | null = null;
-const MAX_UPLOAD_BYTES = Number.parseInt(process.env.MAX_UPLOAD_MB ?? "100", 10) * 1024 * 1024;
+const MAX_UPLOAD_BYTES = maxDocumentBytes();
 const execFileAsync = promisify(execFile);
 const LOCAL_FILE_TTL_MS = 60 * 60 * 1000;
 const localFiles = new Map<string, { path: string; fileName: string; expiresAt: number }>();
@@ -31,7 +33,7 @@ async function selectLocalEbook(): Promise<{ path: string; fileName: string } | 
       "--file-selection",
       "--title=Seleccionar EPUB o PDF",
       "--file-filter=Libros EPUB y PDF | *.epub *.EPUB *.pdf *.PDF",
-    ]);
+    ], { timeout: 10 * 60 * 1000, maxBuffer: 64 * 1024 });
     const path = stdout.trim();
     if (!path || ![".epub", ".pdf"].includes(extname(path).toLowerCase())) return null;
     return { path, fileName: basename(path) };
@@ -71,12 +73,13 @@ createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/local-file/open") {
       const selected = await selectLocalEbook();
       if (!selected) { response.writeHead(204).end(); return; }
+      const data = await readDocument(selected.path);
       const id = randomUUID();
       localFiles.set(id, { ...selected, expiresAt: Date.now() + LOCAL_FILE_TTL_MS });
       response.setHeader("Content-Type", "application/octet-stream");
       response.setHeader("X-Local-File-Id", id);
       response.setHeader("X-File-Name", encodeURIComponent(selected.fileName));
-      response.end(await readFile(selected.path));
+      response.end(data);
       return;
     }
     const localFileMatch = url.pathname.match(/^\/local-file\/([^/]+)$/);
@@ -84,20 +87,18 @@ createServer(async (request, response) => {
       const id = decodeURIComponent(localFileMatch[1]!);
       const selected = localFile(id);
       if (!selected) { response.writeHead(404).end(); return; }
-      const temporaryPath = join(dirname(selected.path), `.${randomUUID()}.${selected.fileName}.tmp`);
-      try {
-        await writeFile(temporaryPath, await readRequestBody(request));
-        await rename(temporaryPath, selected.path);
+      const data = await readRequestBody(request);
+      await fileOperations.run(selected.path, async () => {
+        if (!localFile(id)) throw new Error("El permiso temporal del archivo ha caducado");
+        await writeFileAtomically(selected.path, data);
         selected.expiresAt = Date.now() + LOCAL_FILE_TTL_MS;
-      } finally {
-        await rm(temporaryPath, { force: true }).catch(() => undefined);
-      }
+      });
       response.writeHead(204).end();
       return;
     }
     if (request.method === "GET" && url.pathname === "/devices") {
       response.setHeader("Content-Type", "application/json");
-      response.end(JSON.stringify({ ok: true, data: await getDevices() }));
+      response.end(JSON.stringify({ ok: true, data: (await getDevices()).map(({ id, name, books }) => ({ id, name, books })) }));
       return;
     }
     const match = url.pathname.match(/^\/devices\/([^/]+)\/book$/);
@@ -105,9 +106,13 @@ createServer(async (request, response) => {
       const device = (await getDevices()).find((item) => item.id === decodeURIComponent(match[1]!));
       const book = device ? await resolveKnownDeviceBook(device, url.searchParams.get("path") ?? "") : null;
       if (!book) { response.writeHead(404).end(); return; }
+      if ((await stat(book.path)).size > MAX_UPLOAD_BYTES) throw new Error("El archivo supera el tamaño máximo permitido");
       response.setHeader("Content-Type", "application/octet-stream");
       response.setHeader("X-File-Name", encodeURIComponent(book.fileName));
-      createReadStream(book.path).pipe(response);
+      const stream = createReadStream(book.path);
+      stream.on("error", () => response.destroy());
+      response.on("close", () => stream.destroy());
+      stream.pipe(response);
       return;
     }
     if (request.method === "POST" && match) {

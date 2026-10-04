@@ -2,7 +2,11 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["DOM", "DOM.Iterable", "ES2020"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ES2020"
+    ],
     "allowJs": false,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -16,6 +20,14 @@
     "noEmit": true,
     "jsx": "react-jsx"
   },
-  "include": ["apps/web/src", "apps/api/src"],
+  "include": [
+    "apps/web/src",
+    "apps/api/src",
+    "packages/contracts/src",
+    "scripts/**/*.ts",
+    "apps/desktop",
+    "tests/e2e",
+    "playwright.config.ts"
+  ],
   "references": []
 }
