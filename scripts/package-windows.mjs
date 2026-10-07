@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 
 const args = ["--win", "--x64", ...process.argv.slice(2)];
 const require = createRequire(import.meta.url);
-const image = "electronuserland/builder:wine@sha256:41ae540902461b6cbc988987db79547fcc10cda04d2a6c6367504f59d4b37c64";
+const image = "docker.io/electronuserland/builder:wine@sha256:41ae540902461b6cbc988987db79547fcc10cda04d2a6c6367504f59d4b37c64";
 
 function completed(child) {
   return new Promise((resolve, reject) => {
