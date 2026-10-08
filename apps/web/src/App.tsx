@@ -18,7 +18,7 @@ function isJobActive(job: TranslationJob): boolean {
   return job.status === "pending" || job.status === "processing" || job.status === "pausing";
 }
 
-const JOBS_UPDATED_EVENT = "epub-translator:jobs-updated";
+const JOBS_UPDATED_EVENT = "folio:jobs-updated";
 
 function publishJobsUpdated(jobs: TranslationJob[]): void {
   window.dispatchEvent(new CustomEvent<TranslationJob[]>(JOBS_UPDATED_EVENT, { detail: jobs }));
@@ -424,7 +424,7 @@ export function App() {
   return (
     <div className="app-shell" data-theme="kinpaku">
       <TopNavigation />
-      <iframe className="hidden" name="epub-translator-download" title="Descargas" />
+      <iframe className="hidden" name="folio-download" title="Descargas" />
       <Routes>
         <Route path="/translations" element={<TranslationsWorkspace />} />
         <Route path="/format" element={<FormatWorkspace />} />

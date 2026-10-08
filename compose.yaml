@@ -1,63 +1,20 @@
+name: folio
 services:
-  api:
+  folio:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    working_dir: /app
-    command: >
-      sh -lc "corepack enable &&
-      pnpm install &&
-      pnpm dev:api"
-    network_mode: host
-    environment:
-      PORT: "3001"
-      LLM_MOCK: "${LLM_MOCK:-true}"
-      LLM_API_BASE_URL: "${LLM_API_BASE_URL:-https://openrouter.ai/api/v1}"
-      LLM_API_KEY: "${LLM_API_KEY:-replace-me}"
-      LLM_MODEL: "${LLM_MODEL:-deepseek/deepseek-v4-flash}"
-      LLM_TIMEOUT_MS: "${LLM_TIMEOUT_MS:-120000}"
-      OPENROUTER_SITE_URL: "${OPENROUTER_SITE_URL:-http://localhost:5173}"
-      OPENROUTER_APP_NAME: "${OPENROUTER_APP_NAME:-EPUB Translator}"
-      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-100}"
-      TRANSLATION_REVIEW: "${TRANSLATION_REVIEW:-false}"
-      PDF_CONVERSION_PROVIDER: "${PDF_CONVERSION_PROVIDER:-openrouter}"
-      PDF_OPENROUTER_MODEL: "${PDF_OPENROUTER_MODEL:-google/gemini-3.8-flash}"
-      PDF_OPENROUTER_ENGINE: "${PDF_OPENROUTER_ENGINE:-native}"
-      PDF_PAGES_PER_BATCH: "${PDF_PAGES_PER_BATCH:-3}"
-      PDF_TIMEOUT_MS: "${PDF_TIMEOUT_MS:-180000}"
-      PDF_MAX_OUTPUT_TOKENS: "${PDF_MAX_OUTPUT_TOKENS:-24000}"
-      PDF_OCR: "${PDF_OCR:-true}"
-      PDF_OCR_LANG: "${PDF_OCR_LANG:-spa+eng}"
-      PDF_RENDER_COMMAND: "${PDF_RENDER_COMMAND:-pdftoppm}"
-      OUTPUT_DIR: "/app/output"
-      EBOOK_DEVICE_ROOTS: "/host-media"
-      DEVICE_BRIDGE_URL: "http://127.0.0.1:3002"
-      DEVICE_BRIDGE_TOKEN: "${DEVICE_BRIDGE_TOKEN:-epub-translator-local-device-bridge}"
-    volumes:
-      - .:/app
-      - "${HOST_OUTPUT_DIR:-/home/baul/Descargas/ebooks}:/app/output"
-      - "/media:/host-media:ro"
-      - api_node_modules:/app/node_modules
-
-  web:
-    image: node:22-bookworm
-    working_dir: /app
-    command: >
-      sh -lc "corepack enable &&
-      pnpm install &&
-      pnpm dev:web"
     ports:
-      - "5173:5173"
+      - "127.0.0.1:3001:3001"
+    env_file:
+      - path: .env
+        required: false
     environment:
-      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:3001}"
-      CHOKIDAR_USEPOLLING: "true"
-      WATCHPACK_POLLING: "true"
+      HOST: "0.0.0.0"
+      PORT: "3001"
+      FOLIO_DATA_DIR: /data
     volumes:
-      - .:/app
-      - web_node_modules:/app/node_modules
-    depends_on:
-      - api
-
+      - folio_data:/data
+    restart: unless-stopped
 volumes:
-  api_node_modules:
-  web_node_modules:
+  folio_data:

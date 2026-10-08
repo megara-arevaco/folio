@@ -17,7 +17,7 @@ type PdfConversionState = {
   error: string | null;
 };
 
-const ACTIVE_JOB_STORAGE_KEY = "epub-translator.active-pdf-job";
+const ACTIVE_JOB_STORAGE_KEY = "folio.active-pdf-job";
 
 const INITIAL_STATE: PdfConversionState = {
   activeJobId: null,

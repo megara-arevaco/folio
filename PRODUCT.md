@@ -6,7 +6,7 @@ product
 
 ## Platform
 
-web (Electron desktop)
+Aplicación web personal: React en el navegador y API Fastify en el servidor.
 
 ## Users
 

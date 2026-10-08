@@ -18,7 +18,7 @@ type TranslationState = {
   error: string | null;
 };
 
-const ACTIVE_JOB_STORAGE_KEY = "epub-translator.active-job";
+const ACTIVE_JOB_STORAGE_KEY = "folio.active-job";
 
 const INITIAL_STATE: TranslationState = {
   activeJobId: null,

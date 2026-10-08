@@ -1,5 +1,6 @@
-import { test, expect, launchDesktop } from "./fixtures";
+import { test, expect, launchServer } from "./fixtures";
 import AdmZip from "adm-zip";
+import { load } from "cheerio";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
@@ -13,18 +14,19 @@ function epub() {
   return zip.toBuffer();
 }
 
-test("abre Folio y permite navegar por todas las herramientas", async ({ page, desktop }) => {
+test("abre Folio y permite navegar por todas las herramientas", async ({ page }) => {
   await expect(page).toHaveTitle(/Folio/);
   await expect(page.getByRole("link", { name: "Folio", exact: true })).toBeVisible();
   for (const name of ["Convertir PDF", "Metadatos", "Dispositivo", "Lecturas", "Traducir EPUB"]) {
     await page.getByRole("link", { name, exact: true }).click();
     await expect(page.getByRole("heading", { name, exact: true }).first()).toBeVisible();
   }
-  expect(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+  await page.goto(`${new URL(page.url()).origin}/reading-log`);
+  await expect(page.getByRole("heading", { name: "Lecturas", exact: true }).first()).toBeVisible();
   expect(await page.evaluate(() => typeof (window as unknown as { require?: unknown }).require)).toBe("undefined");
 });
 
-test("traduce un EPUB, edita metadatos y conserva el resultado al recargar", async ({ page, desktop, dataRoot }) => {
+test("traduce un EPUB, edita metadatos y conserva el resultado al recargar", async ({ page, dataRoot }) => {
   await page.locator('input[type="file"]').setInputFiles({ name: "aventura.epub", mimeType: "application/epub+zip", buffer: epub() });
   await page.getByRole("button", { name: "Traducir EPUB", exact: true }).click();
   await expect(page.locator('.job-status__label[data-status="done"]')).toBeVisible({ timeout: 30_000 });
@@ -39,11 +41,9 @@ test("traduce un EPUB, edita metadatos y conserva el resultado al recargar", asy
   const response = await page.request.get(href!);
   expect(response.ok()).toBe(true);
   const destination = join(dataRoot, "descarga.epub");
-  await desktop.evaluate(({ BrowserWindow }, destination) => {
-    BrowserWindow.getAllWindows()[0].webContents.session.once("will-download", (_event, item) => item.setSavePath(destination));
-  }, destination);
+  const downloading = page.waitForEvent("download");
   await page.getByRole("link", { name: "Descargar", exact: true }).click();
-  await expect.poll(async () => readFile(destination).then(data => data.length).catch(() => 0)).toBeGreaterThan(0);
+  await (await downloading).saveAs(destination);
   const zip = new AdmZip(await readFile(destination));
   expect(zip.readAsText("OEBPS/content.opf")).toContain("La aventura de Folio");
   expect(zip.getEntry("OEBPS/chapter.xhtml")).toBeTruthy();
@@ -68,20 +68,42 @@ test("convierte un PDF local en un EPUB descargable", async ({ page }) => {
   expect(zip.getEntries().some(entry => entry.entryName.endsWith(".xhtml") && zip.readAsText(entry).includes("A book prepared with Folio"))).toBe(true);
 });
 
-test("edita y sobrescribe un archivo elegido en el diálogo nativo", async ({ page, desktop, dataRoot }) => {
+test("edita un archivo en el navegador y descarga el resultado", async ({ page, dataRoot }) => {
   const path = join(dataRoot, "original.epub");
-  await import("node:fs/promises").then(fs => fs.writeFile(path, epub()));
-  // Playwright does not drive native OS dialogs; only replace the OS selection result.
-  await desktop.evaluate(({ dialog }, path) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
-  }, path);
+  await page.evaluate(() => Object.defineProperty(window, "showOpenFilePicker", { value: undefined }));
+  await page.getByRole("link", { name: "Metadatos", exact: true }).click();
+  await page.getByLabel("Archivo EPUB o PDF", { exact: true }).setInputFiles({ name: "original.epub", mimeType: "application/epub+zip", buffer: epub() });
+  await expect(page.getByLabel("Título", { exact: true })).toHaveValue("Un libro de prueba");
+  await page.getByLabel("Título", { exact: true }).fill("Original actualizado");
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Guardar y descargar" }).click();
+  await (await downloading).saveAs(path);
+  await expect(page.getByText("EPUB actualizado y descargado.")).toBeVisible();
+  expect(new AdmZip(await readFile(path)).readAsText("OEBPS/content.opf")).toContain("Original actualizado");
+});
+
+test("sobrescribe usando el permiso de escritura del navegador", async ({ page }) => {
+  await page.evaluate(bytes => {
+    let content = new Uint8Array(bytes);
+    const handle = {
+      getFile: async () => new File([content], "original.epub", { type: "application/epub+zip" }),
+      createWritable: async () => ({
+        write: async (blob: Blob) => { content = new Uint8Array(await blob.arrayBuffer()); },
+        close: async () => { Object.assign(window, { savedBook: Array.from(content) }); },
+        abort: async () => {},
+      }),
+    };
+    Object.defineProperty(window, "showOpenFilePicker", { value: async () => [handle] });
+  }, Array.from(epub()));
   await page.getByRole("link", { name: "Metadatos", exact: true }).click();
   await page.getByRole("button", { name: "Seleccionar EPUB o PDF" }).click();
   await expect(page.getByLabel("Título", { exact: true })).toHaveValue("Un libro de prueba");
-  await page.getByLabel("Título", { exact: true }).fill("Original actualizado");
+  await page.getByLabel("Título", { exact: true }).fill("Edición con permiso");
   await page.getByRole("button", { name: "Guardar y sobrescribir" }).click();
   await expect(page.getByText("EPUB guardado. El archivo original se ha sobrescrito.")).toBeVisible();
-  expect(new AdmZip(await readFile(path)).readAsText("OEBPS/content.opf")).toContain("Original actualizado");
+  const bytes = await page.evaluate(() => (window as unknown as { savedBook: number[] }).savedBook);
+  const metadata = load(new AdmZip(Buffer.from(bytes)).readAsText("OEBPS/content.opf"), { xml: true });
+  expect(metadata("dc\\:title").text()).toBe("Edición con permiso");
 });
 
 test("guarda lecturas, permite editarlas y borrarlas desde la interfaz", async ({ page }) => {
@@ -115,10 +137,11 @@ test("rechaza archivos incompatibles y peticiones de otros orígenes", async ({ 
 });
 
 
-test("conserva las lecturas al cerrar y volver a abrir Folio", async ({ dataRoot }) => {
-  const first = await launchDesktop(dataRoot);
+test("conserva las lecturas al reiniciar el servidor de Folio", async ({ dataRoot, browser }) => {
+  const first = await launchServer(dataRoot);
   try {
-    const page = await first.firstWindow();
+    const page = await browser.newPage();
+    await page.goto(first.origin);
     await expect(page.getByRole("heading", { name: "Traducir EPUB", exact: true })).toBeVisible();
     const response = await page.request.post(`${new URL(page.url()).origin}/api/reading-log`, { data: {
       openLibraryKey: null, title: "Libro persistente", authors: ["Autora E2E"], coverUrl: null,
@@ -126,9 +149,10 @@ test("conserva las lecturas al cerrar y volver a abrir Folio", async ({ dataRoot
     } });
     expect(response.status()).toBe(201);
   } finally { await first.close(); }
-  const second = await launchDesktop(dataRoot);
+  const second = await launchServer(dataRoot);
   try {
-    const page = await second.firstWindow();
+    const page = await browser.newPage();
+    await page.goto(second.origin);
     await page.getByRole("link", { name: "Lecturas", exact: true }).click();
     await expect(page.getByRole("button", { name: "Editar lectura de Libro persistente" })).toBeVisible();
   } finally { await second.close(); }

@@ -15,6 +15,7 @@ coverage/
 
 # Runtime data and user files
 tmp/
+data/
 output/
 .cache/
 *.sqlite
@@ -34,7 +35,6 @@ npm-debug.log*
 .idea/
 .vscode/
 
-# Desktop packages and E2E artifacts
-release/
+# E2E artifacts
 playwright-report/
 test-results/

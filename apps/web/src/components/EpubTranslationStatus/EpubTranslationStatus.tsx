@@ -129,7 +129,7 @@ export function EpubTranslationStatus({
         </div>
         <progress className="progress progress-success w-full" value={100} max={100} />
         <div className="flex justify-end">
-          <a className="btn btn-success" href={downloadUrl} target="epub-translator-download">
+          <a className="btn btn-success" href={downloadUrl} target="folio-download">
             <DownloadIcon />
             Descargar
           </a>

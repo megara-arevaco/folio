@@ -117,30 +117,14 @@ async function updateMetadata(request: FastifyRequest, reply: FastifyReply) {
   return reply.send(updated);
 }
 
-export type LocalFiles = {
-  open: () => Promise<{ id: string; name: string; data: Buffer } | null>;
-  overwrite: (id: string, data: Buffer) => Promise<void>;
-};
-
-export async function epubMetadataRoutes(fastify: FastifyInstance, options: { localFiles?: LocalFiles } = {}) {
+export async function epubMetadataRoutes(fastify: FastifyInstance) {
   fastify.post("/api/files/local/open", async (_request, reply) => {
-    if (options.localFiles) {
-      try {
-        const file = await options.localFiles.open();
-        if (!file) return reply.status(204).send();
-        reply.header("X-Local-File-Id", file.id);
-        reply.header("X-File-Name", encodeURIComponent(file.name));
-        return reply.type("application/octet-stream").send(file.data);
-      } catch (error) {
-        return reply.status(409).send({ ok: false, error: error instanceof Error ? error.message : "No se ha podido abrir el archivo" });
-      }
-    }
     const bridgeUrl = process.env.DEVICE_BRIDGE_URL;
     if (!bridgeUrl) return reply.status(503).send({ ok: false, error: "El selector local no está disponible" });
     try {
       const response = await fetchWithDeadline(`${bridgeUrl}/local-file/open`, {
         method: "POST",
-        headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" },
+        headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge" },
       }, 10 * 60 * 1000);
       if (response.status === 204) return reply.status(204).send();
       if (!response.ok) return reply.status(502).send({ ok: false, error: "No se ha podido abrir el selector local" });
@@ -160,14 +144,6 @@ export async function epubMetadataRoutes(fastify: FastifyInstance, options: { lo
     const { fileId } = request.params as { fileId: string };
     const upload = await request.file();
     if (!upload) return reply.status(400).send({ ok: false, error: "Falta el archivo editado" });
-    if (options.localFiles) {
-      try {
-        await options.localFiles.overwrite(fileId, await upload.toBuffer());
-        return reply.status(204).send();
-      } catch (error) {
-        return reply.status(409).send({ ok: false, error: error instanceof Error ? error.message : "No se ha podido guardar el archivo" });
-      }
-    }
     const bridgeUrl = process.env.DEVICE_BRIDGE_URL;
     if (!bridgeUrl) return reply.status(503).send({ ok: false, error: "La escritura local no está disponible" });
     try {
@@ -178,7 +154,7 @@ export async function epubMetadataRoutes(fastify: FastifyInstance, options: { lo
         method: "PUT",
         headers: {
           "Content-Type": "application/octet-stream",
-          "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge",
+          "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge",
         },
         body: payload,
       });

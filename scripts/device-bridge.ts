@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { deleteKnownDeviceBook, listEbookDevices, replaceKnownDeviceBook, resolveKnownDeviceBook, uploadKnownDeviceBook } from "../apps/api/src/services/devices";
 
 const port = Number.parseInt(process.env.DEVICE_BRIDGE_PORT ?? "3002", 10);
-const token = process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge";
+const token = process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge";
 const CACHE_TTL_MS = 60_000;
 let deviceCache: { createdAt: number; data: Awaited<ReturnType<typeof listEbookDevices>> } | null = null;
 const MAX_UPLOAD_BYTES = maxDocumentBytes();

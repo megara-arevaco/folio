@@ -1,4 +1,4 @@
-# Especificacion: webapp simple para traducir EPUB de ingles a espanol
+# Folio: especificación inicial de traducción EPUB
 
 Este documento esta escrito para guiar a un modelo LLM barato en la implementacion de una pequena aplicacion web. El objetivo es construir una herramienta local/simple que permita subir un archivo EPUB en ingles, traducir su contenido al espanol usando un LLM remoto via API, y descargar un nuevo EPUB traducido.
 
@@ -54,7 +54,7 @@ Usar:
 Estructura recomendada:
 
 ```txt
-epub-translator/
+folio/
   apps/
     web/
       src/

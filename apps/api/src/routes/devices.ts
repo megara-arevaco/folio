@@ -20,7 +20,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     const bridgeUrl = process.env.DEVICE_BRIDGE_URL;
     if (bridgeUrl) {
       try {
-        const response = await fetchWithDeadline(`${bridgeUrl}/devices`, { headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
+        const response = await fetchWithDeadline(`${bridgeUrl}/devices`, { headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge" } });
         if (response.ok) {
           const payload = await readBoundedJson(response) as { ok?: unknown; data?: unknown } | null;
           const devices = payload?.ok === true ? parsePublicDevices(payload.data) : null;
@@ -40,7 +40,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     if (bridgeUrl) {
       try {
         const url = `${bridgeUrl}/devices/${encodeURIComponent(deviceId)}/book?path=${encodeURIComponent(path)}`;
-        const response = await fetchWithDeadline(url, { headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
+        const response = await fetchWithDeadline(url, { headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge" } });
         if (response.ok && response.body) {
           const fileName = decodeURIComponent(response.headers.get("x-file-name") ?? "book.epub").replace(/["\r\n]/g, "-");
           reply.header("Content-Disposition", attachmentContentDisposition(fileName));
@@ -78,7 +78,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
           method: "POST",
           headers: {
             "Content-Type": "application/octet-stream",
-            "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge",
+            "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge",
             "X-File-Name": encodeURIComponent(fileName),
           },
           body: bridgePayload,
@@ -117,7 +117,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
           method: "PUT",
           headers: {
             "Content-Type": "application/octet-stream",
-            "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge",
+            "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge",
           },
           body: bridgePayload,
         });
@@ -145,7 +145,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     if (bridgeUrl) {
       try {
         const url = `${bridgeUrl}/devices/${encodeURIComponent(deviceId)}/book?path=${encodeURIComponent(path)}`;
-        const response = await fetchWithDeadline(url, { method: "DELETE", headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "epub-translator-local-device-bridge" } });
+        const response = await fetchWithDeadline(url, { method: "DELETE", headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge" } });
         if (response.status === 204) return reply.status(204).send();
         if (response.status === 404) return reply.status(404).send({ ok: false, error: "Libro no encontrado en el dispositivo" });
         const detail = await readBoundedJson(response).catch(() => null) as { error?: string } | null;

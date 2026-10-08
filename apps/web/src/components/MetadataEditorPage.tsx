@@ -1,12 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { fetchDeviceBook, replaceDeviceBook } from "../services/devices";
 import {
   fetchEpubMetadata,
   fetchTranslationJob,
   getEpubCoverUrl,
-  openWritableLocalDocument,
-  overwriteLocalDocument,
   readLocalDocumentMetadata,
   renameJobEpub,
   updateEpubMetadata,
@@ -36,7 +34,7 @@ export function MetadataEditorPage() {
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
   const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
-  const [localFileId, setLocalFileId] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [documentFormat, setDocumentFormat] = useState<EditableDocumentFormat>("epub");
   const [metadata, setMetadata] = useState<EpubMetadata>(EMPTY_METADATA);
   const [authorsText, setAuthorsText] = useState("");
@@ -72,7 +70,6 @@ export function MetadataEditorPage() {
     if (!deviceId || !devicePath || !deviceFileName) return;
     let cancelled = false;
     setFileHandle(null);
-    setLocalFileId(null);
     setIsLoading(true);
     void fetchDeviceBook(deviceId, devicePath, deviceFileName)
       .then((loadedFile) => { if (!cancelled) return loadFile(loadedFile); })
@@ -107,14 +104,10 @@ export function MetadataEditorPage() {
   }
 
   async function openWritableFile() {
-    const picker = window.folio?.isDesktop ? undefined : (window as FilePickerWindow).showOpenFilePicker;
+    const picker = (window as FilePickerWindow).showOpenFilePicker;
     try {
       if (!picker) {
-        const selected = await openWritableLocalDocument();
-        if (!selected) return;
-        setFileHandle(null);
-        setLocalFileId(selected.fileId);
-        await loadFile(selected.file);
+        fileInput.current?.click();
         return;
       }
       const [handle] = await picker({
@@ -131,7 +124,6 @@ export function MetadataEditorPage() {
       if (!handle) return;
       const selectedFile = await handle.getFile();
       setFileHandle(handle);
-      setLocalFileId(null);
       await loadFile(selectedFile);
     } catch (pickerError) {
       if (pickerError instanceof DOMException && pickerError.name === "AbortError") return;
@@ -175,12 +167,15 @@ export function MetadataEditorPage() {
           setFile(savedFile);
           setFileName(savedFile.name);
           setNotice(`${documentFormat.toUpperCase()} guardado. El archivo original se ha sobrescrito.`);
-        } else if (localFileId) {
-          await overwriteLocalDocument(localFileId, blob, file.name);
-          setFile(new File([blob], file.name, { type: mimeType }));
-          setNotice(`${documentFormat.toUpperCase()} guardado. El archivo original se ha sobrescrito.`);
         } else {
-          throw new Error("El archivo no se abrió con permiso de escritura");
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = file.name;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          setFile(new File([blob], file.name, { type: mimeType }));
+          setNotice(`${documentFormat.toUpperCase()} actualizado y descargado.`);
         }
         setCoverFile(null);
       }
@@ -204,7 +199,6 @@ export function MetadataEditorPage() {
     }
     setFile(null);
     setFileHandle(null);
-    setLocalFileId(null);
     setDocumentFormat("epub");
     setFileName("");
     setMetadata(EMPTY_METADATA);
@@ -286,7 +280,7 @@ export function MetadataEditorPage() {
             <label className="field-label"><span>{documentFormat === "pdf" ? "Asunto / descripción" : "Descripción"}</span><textarea className="textarea textarea-bordered min-h-32 w-full" value={metadata.description} onChange={(event) => { setMetadata({ ...metadata, description: event.target.value }); markDocumentEdited(); }} /></label>
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button type="button" className="btn btn-ghost" onClick={cancelEditing} disabled={isSaving}>Cancelar</button>
-              <button className="btn btn-primary" type="submit" disabled={isSaving}>{isSaving ? <span className="loading loading-spinner loading-sm" /> : null}Guardar y sobrescribir</button>
+              <button className="btn btn-primary" type="submit" disabled={isSaving}>{isSaving ? <span className="loading loading-spinner loading-sm" /> : null}{jobId || isDeviceBook || fileHandle ? "Guardar y sobrescribir" : "Guardar y descargar"}</button>
             </div>
           </div>
         </form>
@@ -294,15 +288,20 @@ export function MetadataEditorPage() {
         <section className="workbench-surface workbench-section">
           <div className="mb-4">
             <h2 className="section-title">Abrir un EPUB o PDF</h2>
-            <p className="section-copy">El archivo se abrirá con permiso de escritura. Al guardar, se sobrescribirá el original.</p>
+            <p className="section-copy">Edita los metadatos y guarda el resultado. Si tu navegador permite escritura local, puedes sobrescribir el original; en otros navegadores se descarga una copia.</p>
           </div>
           <button type="button" className="file-dropzone w-full" onClick={() => void openWritableFile()}>
             <svg aria-hidden="true" className="h-10 w-10 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" />
             </svg>
             <span className="file-dropzone__title">Seleccionar EPUB o PDF</span>
-            <span className="file-dropzone__meta">Se solicitará permiso para sobrescribirlo al guardar</span>
+            <span className="file-dropzone__meta">EPUB o PDF desde tu equipo</span>
           </button>
+          <input ref={fileInput} type="file" accept=".epub,.pdf" aria-label="Archivo EPUB o PDF" className="hidden" onChange={event => {
+            const selected = event.target.files?.[0];
+            if (selected) { setFileHandle(null); void loadFile(selected); }
+            event.target.value = "";
+          }} />
         </section>
       )}
     </main>

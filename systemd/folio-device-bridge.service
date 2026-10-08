@@ -1,11 +1,11 @@
 [Unit]
-Description=EPUB Translator Kindle device bridge
+Description=Folio Kindle device bridge
 After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Projects/epub-translator
+WorkingDirectory=%h/Projects/folio
 Environment=PATH=%h/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/env pnpm dev:device-bridge
 Restart=on-failure

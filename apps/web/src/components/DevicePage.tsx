@@ -221,7 +221,7 @@ export function DevicePage() {
                     <td data-label="Tamaño" className="operational-meta whitespace-nowrap">{formatSize(book.size)}</td>
                     <td data-label="Acciones"><div className="flex flex-nowrap justify-end gap-2">
                       {["EPUB", "PDF"].includes(book.format) ? <button type="button" className="btn btn-primary btn-outline btn-square btn-sm" aria-label="Editar metadatos" title="Editar metadatos" onClick={() => navigate(`/metadata/device?deviceId=${encodeURIComponent(device.id)}&path=${encodeURIComponent(book.path)}&fileName=${encodeURIComponent(book.fileName)}`)}><DeviceIcon type="edit" /></button> : null}
-                      <a className="btn btn-success btn-square btn-sm" href={getDeviceBookUrl(device.id, book.path)} target="epub-translator-download" aria-label="Descargar" title="Descargar"><DeviceIcon type="download" /></a>
+                      <a className="btn btn-success btn-square btn-sm" href={getDeviceBookUrl(device.id, book.path)} target="folio-download" aria-label="Descargar" title="Descargar"><DeviceIcon type="download" /></a>
                       <button type="button" className="btn btn-error btn-outline btn-square btn-sm" aria-label="Borrar" title="Borrar" onClick={() => void removeBook(device.id, book.path, book.title)}><DeviceIcon type="delete" /></button>
                     </div></td>
                   </tr>

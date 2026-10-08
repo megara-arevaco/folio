@@ -1,8 +1,6 @@
 import type { ApiResponse } from "../../../../packages/contracts/src";
 
-export const API_BASE_URL = window.folio?.isDesktop
-  ? window.location.origin
-  : import.meta.env?.VITE_API_BASE_URL ?? "http://localhost:3001";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
 
 export async function readErrorMessage(
   response: Response,

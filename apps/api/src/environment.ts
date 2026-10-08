@@ -1,13 +1,19 @@
 import { loadEnvFile } from "node:process";
-import { fileURLToPath } from "node:url";
+import { resolve, join } from "node:path";
 
 // Imported before the API services, some of which read configuration at import time.
-// Resolve from the repository rather than the shell's working directory. Node keeps
-// explicitly supplied environment variables (including Docker's) ahead of .env.
+// Load from the execution directory or an explicit path. Node keeps environment
+// variables supplied by the process (including Docker's) ahead of .env.
 try {
-  if (process.env.FOLIO_DESKTOP !== "true") {
-    loadEnvFile(fileURLToPath(new URL("../../../.env", import.meta.url)));
-  }
+  loadEnvFile(resolve(process.env.FOLIO_ENV_FILE ?? ".env"));
 } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+}
+
+if (process.env.FOLIO_DATA_DIR) {
+  const root = resolve(process.env.FOLIO_DATA_DIR);
+  process.env.JOBS_TMP_ROOT ??= join(root, "jobs");
+  process.env.OUTPUT_DIR ??= join(root, "books");
+  process.env.READING_DB_PATH ??= join(root, "reading-log.sqlite");
+  process.env.READING_LOG_PATH ??= join(root, "reading-log.json");
 }

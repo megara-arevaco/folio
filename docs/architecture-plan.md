@@ -1,8 +1,8 @@
-> Nota: la validación se ha migrado a E2E de Electron en `tests/e2e`. Las referencias a tests unitarios de este plan describen la implementación anterior. Consulta `README.md` para los comandos actuales.
+> Nota: la validación usa Playwright sobre la web y la API real en `tests/e2e`. Las referencias a tests unitarios de este plan describen la implementación anterior. Consulta `README.md` para los comandos actuales.
 
 # Plan de refactorización de arquitectura
 
-Aplicar a EPUB Translator los patrones observados en Nemeton: responsabilidades separadas, contratos compartidos, validación de entradas, persistencia recuperable y límites de recursos. La referencia de las reglas y dependencias está en [architecture.md](architecture.md).
+Aplicar a Folio los patrones observados en Nemeton: responsabilidades separadas, contratos compartidos, validación de entradas, persistencia recuperable y límites de recursos. La referencia de las reglas y dependencias está en [architecture.md](architecture.md).
 
 El trabajo se organiza en cambios pequeños y verificables. Cada fase debe conservar las rutas HTTP, los archivos persistidos y los flujos de traducción, conversión y edición existentes, salvo correcciones descritas y probadas expresamente.
 

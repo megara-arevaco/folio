@@ -25,7 +25,6 @@
     "apps/api/src",
     "packages/contracts/src",
     "scripts/**/*.ts",
-    "apps/desktop",
     "tests/e2e",
     "playwright.config.ts"
   ],

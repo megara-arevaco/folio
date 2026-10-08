@@ -112,7 +112,7 @@ async function searchOpenLibrary(query: string): Promise<BookCandidate[]> {
   url.searchParams.set("limit", "12");
   url.searchParams.set("fields", "key,title,author_name,first_publish_year,isbn,cover_i,subject");
   const response = await fetch(url, {
-    headers: { "User-Agent": "EPUB-Translator/0.1 (local personal app)" },
+    headers: { "User-Agent": "Folio/0.1 (local personal app)" },
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) throw new Error(`Open Library respondió con ${response.status}`);

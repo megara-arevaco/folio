@@ -284,7 +284,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                             </IconButton>
                           ) : null}
                           {job.status === "done" && job.downloadUrl ? (
-                            <a className="btn btn-success btn-square btn-sm" href={job.downloadUrl} target="epub-translator-download" aria-label="Descargar" title="Descargar">
+                            <a className="btn btn-success btn-square btn-sm" href={job.downloadUrl} target="folio-download" aria-label="Descargar" title="Descargar">
                               <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <ActionIcon type="download" />
                               </svg>

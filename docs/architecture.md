@@ -1,4 +1,4 @@
-# Arquitectura de EPUB Translator
+# Arquitectura de Folio
 
 La API y la web comparten contratos públicos y mantienen sus implementaciones separadas. Los trabajos distinguen reglas, cola, ejecución y persistencia; el registro de lectura distingue reglas y SQLite. El [plan de refactorización](architecture-plan.md) recoge las fases implementadas.
 
@@ -87,10 +87,10 @@ Los límites de ZIP se comprueban antes de leer entradas; la inflación también
 
 Los límites de contenido no equivalen a un límite absoluto de memoria del proceso. La inicialización y descarga de datos de Tesseract dependen de la biblioteca; el timeout de reconocimiento comienza una vez creado el trabajador. Las escrituras atómicas y las transacciones no garantizan recuperación frente a fallos físicos del almacenamiento. Una interrupción entre publicación y limpieza puede dejar un archivo completo adicional.
 
-## Aplicación de escritorio y verificación
+## Aplicación web y verificación
 
-Folio arranca Electron junto con Fastify sobre loopback y un puerto disponible. La API sirve la compilación React desde el mismo origen. El proceso principal configura almacenamiento en `userData`, inicia los servicios después de cargar su `.env` y cierra Fastify al salir para conservar checkpoints. El renderer está aislado y no tiene Node; la edición local usa diálogos nativos con permisos temporales por archivo.
+Folio se abre en el navegador. En desarrollo, Vite redirige `/api` a Fastify; en producción, Fastify sirve la compilación React y la API desde el mismo origen. El servidor carga `.env` antes de inicializar servicios y admite `FOLIO_DATA_DIR` para datos persistentes. Al recibir SIGINT o SIGTERM cierra Fastify y conserva checkpoints. La edición de archivos usa File System Access cuando está disponible y descarga una copia en otros navegadores. El puente local permite acceder a lectores conectados al equipo anfitrión.
 
-`pnpm check` ejecuta el control de arquitectura, TypeScript, E2E con Playwright y la compilación de web y escritorio. Las pruebas unitarias se han retirado; `tests/e2e` valida la aplicación Electron real con carpetas temporales. Cubre navegación, EPUB con traducción simulada, PDF local real, edición de metadatos y de archivos originales, persistencia de lecturas y validación de entradas y origen HTTP. No requiere proveedores de pago ni un Kindle físico. OCR, OpenRouter y hardware MTP requieren validación adicional en su entorno.
+`pnpm check` ejecuta el control de arquitectura, TypeScript, E2E con Chromium y la compilación de web y API. Cada prueba arranca Fastify con datos temporales. Cubre navegación, EPUB simulado, PDF local real, edición y descarga, persistencia tras reiniciar el servidor y rechazo de entradas y orígenes no autorizados. OCR, OpenRouter y hardware MTP requieren validación adicional en su entorno.
 
-Las instrucciones de ejecución y empaquetado están en `README.md`.
+Las instrucciones de ejecución están en `README.md`.
