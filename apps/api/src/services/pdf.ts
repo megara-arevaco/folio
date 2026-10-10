@@ -9,6 +9,7 @@ import AdmZip from "adm-zip";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createWorker, type Worker } from "tesseract.js";
 import type { JobProgress } from "../types";
+import type { AiBudgetContext } from "./aiBudget";
 import { PauseRequestedError } from "./epub";
 import { processPdfWithOpenRouter } from "./pdfOpenRouter";
 
@@ -41,6 +42,7 @@ export type ProcessPdfOptions = {
   inputFileName?: string;
   cacheDir?: string;
   onCheckpoint?: (completedPages: number, totalPages: number) => void | Promise<void>;
+  budgetContext?: AiBudgetContext;
 };
 
 type PdfTextItem = {

@@ -16,6 +16,29 @@ export async function deviceRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ ok: false, error: "Dispositivo o ruta inválidos" });
     }
   });
+  fastify.get("/api/devices/diagnostics", async (_request, reply) => {
+    const bridgeConfigured = Boolean(process.env.DEVICE_BRIDGE_URL);
+    let bridgeReachable: boolean | null = null;
+    let bridgeDeviceCount: number | null = null;
+    if (bridgeConfigured) {
+      try {
+        const response = await fetchWithDeadline(`${process.env.DEVICE_BRIDGE_URL}/devices`, {
+          headers: { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge" },
+        });
+        if (!response.ok) throw new Error("El puente respondió con error");
+        const payload = await readBoundedJson(response) as { ok?: unknown; data?: unknown } | null;
+        const devices = payload?.ok === true ? parsePublicDevices(payload.data) : null;
+        if (!devices) throw new Error("Respuesta inválida del puente");
+        bridgeReachable = true;
+        bridgeDeviceCount = devices.length;
+      } catch { bridgeReachable = false; }
+    }
+    const localDeviceCount = (await listEbookDevices()).length;
+    reply.header("Cache-Control", "no-store").send({ ok: true, data: {
+      bridgeConfigured, bridgeReachable, bridgeDeviceCount, localDeviceCount,
+    } });
+  });
+
   fastify.get("/api/devices", async (_request, reply) => {
     const bridgeUrl = process.env.DEVICE_BRIDGE_URL;
     if (bridgeUrl) {

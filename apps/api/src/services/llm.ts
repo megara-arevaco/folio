@@ -1,15 +1,14 @@
 import type { TextItem } from "../types";
 export type { TextItem } from "../types";
 import { integerSetting } from "./shared/limits";
+import { getOpenRouterApiKey } from "./openRouterSettings";
 import { readBoundedBody, readBoundedJson } from "./shared/network";
 import type { GlossaryEntry } from "../types";
+import { AiBudgetExceededError, getAiBudgetCaps, reserveAiBudget, type AiBudgetContext } from "./aiBudget";
 
 
 
 const LLM_MOCK = process.env.LLM_MOCK === "true";
-const LLM_API_BASE_URL = process.env.LLM_API_BASE_URL ?? "";
-const LLM_API_KEY = process.env.LLM_API_KEY ?? "";
-const LLM_MODEL = process.env.LLM_MODEL ?? "";
 const LLM_TIMEOUT_MS = integerSetting("LLM_TIMEOUT_MS", 120000, 1000, 900000);
 const OPENROUTER_SITE_URL = process.env.OPENROUTER_SITE_URL ?? "";
 const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME ?? "";
@@ -81,9 +80,9 @@ function validateResponse(items: TextItem[], response: TextItem[]): void {
   }
 }
 
-function buildHeaders(): Record<string, string> {
+function buildHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = {
-    "Authorization": `Bearer ${LLM_API_KEY}`,
+    "Authorization": `Bearer ${apiKey}`,
     "Content-Type": "application/json",
   };
 
@@ -193,30 +192,40 @@ async function callLLM(
   glossary: GlossaryEntry[],
   context = "",
   strictJson = false,
+  budgetContext: AiBudgetContext = { kind: "job", id: "unassigned" },
 ): Promise<TextItem[]> {
+  const apiKey = getOpenRouterApiKey();
+  if (!apiKey) throw new Error("Configura una clave de OpenRouter en Ajustes.");
+  const apiBaseUrl = process.env.LLM_API_BASE_URL ?? "";
+  const model = process.env.LLM_MODEL ?? "";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  const outputTokenBound = getAiBudgetCaps().maxOutputTokensPerRequest;
+  const body = JSON.stringify({
+    model,
+    messages: [
+      { role: "system", content: strictJson ? STRICT_JSON_SYSTEM_PROMPT : SYSTEM_PROMPT },
+      { role: "user", content: buildUserPrompt(items, glossary, context) },
+    ],
+    temperature: 0.3,
+    max_tokens: outputTokenBound,
+    response_format: { type: "json_object" },
+  });
 
   try {
-    const response = await fetch(`${LLM_API_BASE_URL}/chat/completions`, {
+    await reserveAiBudget(budgetContext, body, outputTokenBound);
+    const response = await fetch(`${apiBaseUrl}/chat/completions`, {
       method: "POST",
-      headers: buildHeaders(),
-      body: JSON.stringify({
-        model: LLM_MODEL,
-        messages: [
-          { role: "system", content: strictJson ? STRICT_JSON_SYSTEM_PROMPT : SYSTEM_PROMPT },
-          { role: "user", content: buildUserPrompt(items, glossary, context) },
-        ],
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-      }),
+      headers: buildHeaders(apiKey),
+      body,
       signal: controller.signal,
     });
 
     if (!response.ok) {
       const body = await readBoundedBody(response, 1024 * 1024).then((body) => body.toString("utf8")).catch(() => "");
+      const safeBody = body.split(apiKey).join("[clave]");
       throw new Error(
-        `API LLM respondio con ${response.status}: ${body.slice(0, 200)}`
+        `API LLM respondio con ${response.status}: ${safeBody.slice(0, 200)}`
       );
     }
 
@@ -248,23 +257,31 @@ function mockTranslate(items: TextItem[]): TextItem[] {
   }));
 }
 
-async function callJsonLLM(system: string, user: string): Promise<unknown> {
+async function callJsonLLM(system: string, user: string, budgetContext: AiBudgetContext): Promise<unknown> {
+  const apiKey = getOpenRouterApiKey();
+  if (!apiKey) throw new Error("Configura una clave de OpenRouter en Ajustes.");
+  const apiBaseUrl = process.env.LLM_API_BASE_URL ?? "";
+  const model = process.env.LLM_MODEL ?? "";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  const outputTokenBound = getAiBudgetCaps().maxOutputTokensPerRequest;
+  const body = JSON.stringify({
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    temperature: 0.1,
+    max_tokens: outputTokenBound,
+    response_format: { type: "json_object" },
+  });
 
   try {
-    const response = await fetch(`${LLM_API_BASE_URL}/chat/completions`, {
+    await reserveAiBudget(budgetContext, body, outputTokenBound);
+    const response = await fetch(`${apiBaseUrl}/chat/completions`, {
       method: "POST",
-      headers: buildHeaders(),
-      body: JSON.stringify({
-        model: LLM_MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-      }),
+      headers: buildHeaders(apiKey),
+      body,
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -305,7 +322,7 @@ function normalizeGlossaryResponse(parsed: unknown): GlossaryEntry[] {
     .slice(0, 100);
 }
 
-export async function generateGlossary(items: TextItem[]): Promise<GlossaryEntry[]> {
+export async function generateGlossary(items: TextItem[], budgetContext: AiBudgetContext = { kind: "job", id: "unassigned" }): Promise<GlossaryEntry[]> {
   if (LLM_MOCK || items.length === 0) return [];
   const sample = items.map((item) => item.text).join("\n").slice(0, 16000);
   const parsed = await callJsonLLM(
@@ -314,6 +331,7 @@ export async function generateGlossary(items: TextItem[]): Promise<GlossaryEntry
 
 Texto:
 ${sample}`,
+    budgetContext,
   );
   return normalizeGlossaryResponse(parsed);
 }
@@ -321,11 +339,13 @@ ${sample}`,
 export async function reviewTranslationBatch(
   items: TextItem[],
   glossary: GlossaryEntry[] = [],
+  budgetContext: AiBudgetContext = { kind: "job", id: "unassigned" },
 ): Promise<TextItem[]> {
   if (LLM_MOCK || items.length === 0) return items;
   const parsed = await callJsonLLM(
     "Eres un revisor de traduccion literaria. Corrige solo errores claros de sentido, gramatica o coherencia. No reescribas innecesariamente.",
     `Revisa estos textos ya traducidos al espanol. Devuelve exactamente los mismos IDs y textos corregidos, en un objeto {"items":[...]}. Respeta el glosario. Si un texto esta bien, dejalo igual.\nGlosario:\n${formatGlossary(glossary)}\nItems:\n${JSON.stringify(items)}`,
+    budgetContext,
   );
   const reviewed = normalizeTranslationResponse(parsed);
   validateResponse(items, reviewed);
@@ -339,14 +359,16 @@ export async function translateBatch(
   glossary: GlossaryEntry[] = [],
   context = "",
   strictJson = false,
+  budgetContext: AiBudgetContext = { kind: "job", id: "unassigned" },
 ): Promise<TextItem[]> {
   if (LLM_MOCK) {
     return mockTranslate(items);
   }
 
   try {
-    return await callLLM(items, glossary, context, strictJson);
+    return await callLLM(items, glossary, context, strictJson, budgetContext);
   } catch (err) {
+    if (err instanceof AiBudgetExceededError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Error al traducir lote: ${message}`);
   }
@@ -356,21 +378,23 @@ export async function translateWithRetry(
   items: TextItem[],
   glossary: GlossaryEntry[] = [],
   context = "",
+  budgetContext: AiBudgetContext = { kind: "job", id: "unassigned" },
 ): Promise<TextItem[]> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      return await translateBatch(items, glossary, context, attempt > 0);
+      return await translateBatch(items, glossary, context, attempt > 0, budgetContext);
     } catch (error) {
+      if (error instanceof AiBudgetExceededError) throw error;
       lastError = error;
     }
   }
 
   if (items.length > 1) {
     const splitIndex = Math.ceil(items.length / 2);
-    const firstHalf = await translateWithRetry(items.slice(0, splitIndex), glossary, context);
-    const secondHalf = await translateWithRetry(items.slice(splitIndex), glossary, context);
+    const firstHalf = await translateWithRetry(items.slice(0, splitIndex), glossary, context, budgetContext);
+    const secondHalf = await translateWithRetry(items.slice(splitIndex), glossary, context, budgetContext);
     return [...firstHalf, ...secondHalf];
   }
 

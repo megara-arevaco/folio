@@ -16,6 +16,8 @@ export type PersistedJobRecord = {
   translationMemory?: Job["translationMemory"];
   queueOrder?: number | null;
   elapsedMs?: number;
+  lastProgressAt?: string | null;
+  archived?: boolean;
   createdAt: string;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -38,6 +40,8 @@ export function toPersistedJobRecord(job: Job): PersistedJobRecord {
     translationMemory: job.translationMemory,
     queueOrder: job.queueOrder,
     elapsedMs: job.elapsedMs,
+    lastProgressAt: job.lastProgressAt?.toISOString() ?? null,
+    archived: job.archived,
     createdAt: job.createdAt.toISOString(),
     startedAt: job.startedAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
@@ -74,6 +78,8 @@ export function fromPersistedJobRecord(record: PersistedJobRecord): Job {
       ? record.queueOrder ?? createdAt.getTime()
       : null,
     elapsedMs: record.elapsedMs ?? 0,
+    lastProgressAt: record.lastProgressAt ? new Date(record.lastProgressAt) : createdAt,
+    archived: record.archived ?? false,
     createdAt,
     // Timers only exist in the process that owns the worker.  A restored job
     // must never count server downtime as active processing time.
@@ -102,6 +108,8 @@ export function isPersistedJobRecord(value: unknown): value is PersistedJobRecor
     (record.error === null || typeof record.error === "string") && date(record.createdAt) &&
     nullableDate(record.startedAt) && nullableDate(record.completedAt) &&
     (record.elapsedMs === undefined || nonnegative(record.elapsedMs)) &&
+    (record.lastProgressAt === undefined || record.lastProgressAt === null || date(record.lastProgressAt)) &&
+    (record.archived === undefined || typeof record.archived === "boolean") &&
     (record.queueOrder === undefined || record.queueOrder === null ||
       typeof record.queueOrder === "number" && Number.isFinite(record.queueOrder)) &&
     (record.completedChapters === undefined || strings(record.completedChapters)) &&

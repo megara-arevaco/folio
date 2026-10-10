@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
-import { deleteDeviceBook, fetchEbookDevices, getDeviceBookUrl, uploadDeviceBook, type EbookDevice } from "../services/devices";
+import { deleteDeviceBook, fetchDeviceDiagnostics, fetchEbookDevices, getDeviceBookUrl, uploadDeviceBook, type DeviceDiagnostics, type EbookDevice } from "../services/devices";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -24,6 +24,7 @@ export function DevicePage() {
   const locale = i18n.resolvedLanguage === "en" ? "en" : "es";
   const navigate = useNavigate();
   const [devices, setDevices] = useState<EbookDevice[]>([]);
+  const [diagnostics, setDiagnostics] = useState<DeviceDiagnostics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedBooks, setSelectedBooks] = useState<Set<string>>(() => new Set());
@@ -51,8 +52,10 @@ export function DevicePage() {
     setIsLoading(true);
     setError(null);
     try {
-      setDevices(await fetchEbookDevices());
+      const nextDevices = await fetchEbookDevices();
+      setDevices(nextDevices);
       setSelectedBooks(new Set());
+      setDiagnostics(await fetchDeviceDiagnostics().catch(() => null));
     }
     catch (loadError) { setError(loadError instanceof Error ? loadError.message : t("metadata.deviceListError")); }
     finally { setIsLoading(false); }
@@ -140,6 +143,12 @@ export function DevicePage() {
       <header className="workspace-intro">
         <h1 className="workspace-title">{t("device.title")}</h1>
       </header>
+      <section className="device-diagnostics" aria-labelledby="device-diagnostics-title">
+        <h2 className="section-title" id="device-diagnostics-title">{t("device.diagnostics")}</h2>
+        <p>{!diagnostics ? t("common.loading") : !diagnostics.bridgeConfigured ? t("device.bridgeNotConfigured") : diagnostics.bridgeReachable ? t("device.bridgeConnected") : t("device.bridgeUnavailable")}</p>
+        {diagnostics ? <p>{t("device.localDeviceCount", { count: diagnostics.localDeviceCount })}{diagnostics.bridgeReachable && diagnostics.bridgeDeviceCount !== null ? ` · ${t("device.bridgeDeviceCount", { count: diagnostics.bridgeDeviceCount })}` : ""}</p> : null}
+        <p>{t("device.bridgeHelp")}</p>
+      </section>
       <section className="device-section">
         <div className="workbench-toolbar workbench-surface workbench-section">
           <div>

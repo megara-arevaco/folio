@@ -3,6 +3,17 @@ import i18n from "../i18n";
 export type { DeviceBook, EbookDevice } from "../../../../packages/contracts/src";
 import { API_BASE_URL, readApiData, readErrorMessage } from "./http";
 
+export type DeviceDiagnostics = {
+  bridgeConfigured: boolean;
+  bridgeReachable: boolean | null;
+  bridgeDeviceCount: number | null;
+  localDeviceCount: number;
+};
+
+export async function fetchDeviceDiagnostics(): Promise<DeviceDiagnostics> {
+  return readApiData<DeviceDiagnostics>(await fetch(`${API_BASE_URL}/api/devices/diagnostics`, { cache: "no-store" }));
+}
+
 export async function fetchEbookDevices(): Promise<EbookDevice[]> {
   const response = await fetch(`${API_BASE_URL}/api/devices`);
   if (!response.ok) throw new Error(await readErrorMessage(response, i18n.t("metadata.deviceListError")));

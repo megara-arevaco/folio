@@ -56,9 +56,11 @@ export function createJobRunner(dependencies: RunnerDependencies) {
         job.kind === "pdf-conversion"
           ? await processPdfToEpub(job.inputFilePath, {
               inputFileName: job.inputFileName,
+              budgetContext: { kind: "job", id: job.id },
               onCheckpoint: async (completedPages, totalPages) => {
                 job.checkpointBatchIndex = completedPages;
                 job.progress = { ...job.progress, current: completedPages, total: totalPages };
+                job.lastProgressAt = new Date();
                 await persistJob(job);
               },
               onProgress: (progress) => {
@@ -86,6 +88,7 @@ export function createJobRunner(dependencies: RunnerDependencies) {
                 }
 
                 currentJob.checkpointBatchIndex = nextBatchIndex;
+                currentJob.lastProgressAt = new Date();
                 currentJob.progress = {
                   current: nextBatchIndex,
                   total: totalBatches,
@@ -114,6 +117,7 @@ export function createJobRunner(dependencies: RunnerDependencies) {
                 }
               },
               enableReview: process.env.TRANSLATION_REVIEW === "true",
+              budgetContext: { kind: "job", id: job.id },
             });
 
       if (

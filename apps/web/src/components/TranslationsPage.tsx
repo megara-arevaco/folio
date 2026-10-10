@@ -1,16 +1,20 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useNavigate } from "react-router";
 import {
-  deleteCompletedTranslationJobs,
+  archiveCompletedTranslationJobs,
   deleteTranslationJob,
+  fetchEpubMetadata,
+  setTranslationJobArchived,
   pauseTranslationJob,
   reorderTranslationJob,
   resumeTranslationJob,
   startQueuedTranslationJob,
   type TranslationJob,
 } from "../services/translation";
+import { addReadingBook } from "../services/readingLog";
+import { GlossaryEditor } from "./GlossaryEditor";
 
 function formatDuration(milliseconds: number, t: TFunction): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -21,6 +25,25 @@ function formatDuration(milliseconds: number, t: TFunction): string {
   if (hours > 0) return t("queue.durationHours", { hours, minutes });
   if (minutes > 0) return t("queue.durationMinutes", { minutes, seconds });
   return t("queue.durationSeconds", { seconds });
+}
+
+function getErrorRecovery(job: TranslationJob, t: TFunction): { message: string; settings: boolean } {
+  const error = (job.error ?? "").toLocaleLowerCase();
+  if (/402|saldo insuficiente|insufficient balance/.test(error)) return { message: t("queue.errorBalanceHelp"), settings: false };
+  if (/401|clave|api key|unauthorized/.test(error)) return { message: t("queue.errorKeyHelp"), settings: true };
+  return { message: t("queue.errorResumeHelp"), settings: false };
+}
+
+function getProgressPhase(job: TranslationJob, t: TFunction): string {
+  const message = job.progress.message.toLocaleLowerCase();
+  if (message.includes("ocr")) return t("queue.phaseOcr");
+  if (message.includes("glosario")) return t("queue.phaseGlossary");
+  if (message.includes("revisando")) return t("queue.phaseReview");
+  if (message.includes("generando epub") || message.includes("construyendo capítulos") || message.includes("empaquetando")) return t("queue.phasePackaging");
+  if (message.includes("traduciendo") || message.includes("traducción")) return t("queue.phaseTranslation");
+  if (message.includes("pdf") || message.includes("página") || message.includes("pagina")) return t("queue.phasePdf");
+  if (message.includes("leyendo epub")) return t("queue.phaseExtraction");
+  return t("queue.phaseProcessing");
 }
 
 function getElapsedTime(job: TranslationJob, now: number, t: TFunction): string | null {
@@ -74,12 +97,14 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
   };
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
-  const [isClearingCompleted, setIsClearingCompleted] = useState(false);
+  const [isArchivingCompleted, setIsArchivingCompleted] = useState(false);
+  const [openGlossaryJobId, setOpenGlossaryJobId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [draggedJobId, setDraggedJobId] = useState<string | null>(null);
 
   function canEditMetadata(job: TranslationJob): boolean {
-    return enableMetadataEditor && job.kind === "epub-translation" && job.status === "done";
+    return enableMetadataEditor && job.status === "done" && Boolean(job.outputFileName);
   }
 
   function handleOpenMetadata(job: TranslationJob) {
@@ -118,24 +143,53 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
     }
   }
 
-  async function handleClearCompleted() {
-    if (!window.confirm(t("queue.clearConfirm"))) {
-      return;
-    }
-
-    setIsClearingCompleted(true);
+  async function handleArchiveCompleted() {
+    setIsArchivingCompleted(true);
     setError(null);
+    setNotice(null);
     try {
-      await deleteCompletedTranslationJobs();
+      await archiveCompletedTranslationJobs();
       await onRefresh();
-    } catch (deleteError) {
-      const message = deleteError instanceof Error
-        ? deleteError.message
-        : t("queue.clearError");
-      setError(message);
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : t("queue.archiveError"));
     } finally {
-      setIsClearingCompleted(false);
+      setIsArchivingCompleted(false);
     }
+  }
+
+  async function handleRestoreArchived(jobId: string) {
+    try {
+      await setTranslationJobArchived(jobId, false);
+      await onRefresh();
+      setNotice(t("queue.archiveRestored"));
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : t("queue.archiveError"));
+    }
+  }
+
+  async function handleAddToReading(job: TranslationJob) {
+    try {
+      const metadata = await fetchEpubMetadata(job.id);
+      await addReadingBook({
+        openLibraryKey: null,
+        title: metadata.title || job.outputFileName || job.inputFileName,
+        authors: metadata.authors,
+        coverUrl: null,
+        firstPublishYear: null,
+        isbn: null,
+        categories: [],
+      });
+      navigate("/reading-log");
+    } catch (addError) {
+      setError(addError instanceof Error ? addError.message : t("queue.addReadingError"));
+    }
+  }
+
+  async function handleMove(jobId: string, direction: -1 | 1) {
+    const index = prioritizableJobs.findIndex((job) => job.id === jobId);
+    const position = index + direction;
+    if (index < 0 || position < 0 || position >= prioritizableJobs.length) return;
+    await handleReorder(jobId, position);
   }
 
   async function handleReorder(jobId: string, position: number) {
@@ -167,12 +221,15 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
     return () => window.clearInterval(timer);
   }, []);
 
-  const prioritizableJobs = jobs.filter((job) => job.status === "pending" || job.status === "paused");
-  const hasCompletedJobs = jobs.some((job) => job.status === "done");
+  const activeJobs = jobs.filter((job) => !job.archived);
+  const archivedJobs = jobs.filter((job) => job.archived);
+  const prioritizableJobs = activeJobs.filter((job) => job.status === "pending" || job.status === "paused");
+  const hasCompletedJobs = activeJobs.some((job) => job.status === "done");
 
   return (
     <div className="space-y-3">
       {error ? <div className="alert alert-error"><span>{error}</span></div> : null}
+      {notice ? <div className="alert alert-success" role="status"><span>{notice}</span></div> : null}
       <div className="jobs-wrap">
             <table className="table jobs-table">
             <colgroup><col className="job-column--file" /><col className="job-column--progress" /><col className="job-column--status" /></colgroup>
@@ -184,9 +241,8 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
               </tr>
             </thead>
             <tbody>
-              {jobs.length > 0 ? (
-                jobs.map((job) => {
-                  const isQueuedJob = job.status === "pending";
+              {activeJobs.length > 0 ? (
+                activeJobs.map((job) => {
                   const isPrioritizableJob = job.status === "pending" || job.status === "paused";
                   const progressValue =
                     job.progress.total > 0
@@ -204,10 +260,12 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                     job.progress.total > 0 &&
                     job.progress.current >= job.progress.total;
                   const isMetadataEditable = canEditMetadata(job);
+                  const queuePosition = prioritizableJobs.findIndex((queuedJob) => queuedJob.id === job.id);
+                  const canEditGlossary = job.kind === "epub-translation" && ["pending", "paused", "error"].includes(job.status);
 
                   return (
+                    <Fragment key={job.id}>
                     <tr
-                      key={job.id}
                       className={`${isActiveJob ? "is-active" : ""} ${isPrioritizableJob ? "cursor-grab" : isMetadataEditable ? "cursor-pointer" : ""}`}
                       tabIndex={isMetadataEditable ? 0 : undefined}
                       aria-label={isMetadataEditable ? t("queue.metadataFor", { name: job.inputFileName }) : undefined}
@@ -239,10 +297,11 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                       <td data-label={t("queue.file")} title={job.inputFileName}>
                         <div className="job-file">
                           <span className="job-file__name">
-                            {isPrioritizableJob ? <span className="mr-2 text-base-content/40" title={t("queue.dragToReorder")}>⠿</span> : null}
+                            {isPrioritizableJob ? <span className="job-reorder-hint" title={t("queue.dragToReorder")}>{t("queue.reorder")}</span> : null}
                             {job.inputFileName}
                           </span>
                           {elapsedTime ? <span className="operational-meta text-base-content/60">{elapsedTime}</span> : null}
+                          {job.lastProgressAt ? <span className="operational-meta text-base-content/60">{t("queue.lastProgress", { time: new Date(job.lastProgressAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) })}</span> : null}
                         </div>
                       </td>
                       <td data-label={t("queue.progress")}>
@@ -258,10 +317,15 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                           </span>
                           </div>
                           {job.progress.message ? (
-                            <div className="text-sm text-base-content/70">
-                              {job.progress.message}
+                            <div className="job-progress__detail">
+                              <strong>{getProgressPhase(job, t)}</strong>
+                              <span>{job.progress.message}</span>
                             </div>
                           ) : null}
+                          {job.error ? (() => {
+                            const recovery = getErrorRecovery(job, t);
+                            return <div className="job-error" role="alert"><p>{job.error}</p><p>{recovery.message}{recovery.settings ? <> <a href="/settings">{t("queue.openSettings")}</a></> : null}</p></div>;
+                          })() : null}
                         </div>
                       </td>
                       <td data-label={t("queue.status")} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
@@ -285,6 +349,13 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                               <ActionIcon type="resume" />
                             </IconButton>
                           ) : null}
+                          {isPrioritizableJob ? (
+                            <div className="job-order-controls">
+                              <button type="button" className="btn btn-ghost btn-xs" aria-label={t("queue.moveUp")} title={t("queue.moveUp")} disabled={queuePosition <= 0} onClick={() => void handleMove(job.id, -1)}>{t("queue.moveUp")}</button>
+                              <button type="button" className="btn btn-ghost btn-xs" aria-label={t("queue.moveDown")} title={t("queue.moveDown")} disabled={queuePosition < 0 || queuePosition >= prioritizableJobs.length - 1} onClick={() => void handleMove(job.id, 1)}>{t("queue.moveDown")}</button>
+                            </div>
+                          ) : null}
+                          {canEditGlossary ? <button type="button" className="btn btn-outline btn-sm" onClick={() => setOpenGlossaryJobId((current) => current === job.id ? null : job.id)}>{t("queue.glossaryEdit")}</button> : null}
                           {job.status === "done" && job.downloadUrl ? (
                             <a className="btn btn-success btn-square btn-sm" href={job.downloadUrl} target="folio-download" aria-label={t("common.download")} title={t("common.download")}>
                               <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -292,6 +363,8 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                               </svg>
                             </a>
                           ) : null}
+                          {job.status === "done" && isMetadataEditable ? <button type="button" className="btn btn-outline btn-sm" onClick={() => handleOpenMetadata(job)}>{t("queue.metadataAction")}</button> : null}
+                          {job.status === "done" ? <button type="button" className="btn btn-outline btn-sm" onClick={() => void handleAddToReading(job)}>{t("queue.addToReading")}</button> : null}
                           {job.status !== "processing" && job.status !== "pausing" ? (
                             <IconButton
                               label={t("queue.delete")}
@@ -304,6 +377,8 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                         </div>
                       </td>
                     </tr>
+                    {openGlossaryJobId === job.id ? <tr className="glossary-editor-row"><td colSpan={3}><GlossaryEditor jobId={job.id} onClose={() => setOpenGlossaryJobId(null)} /></td></tr> : null}
+                    </Fragment>
                   );
                 })
               ) : (
@@ -316,17 +391,34 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
             </tbody>
         </table>
       </div>
-      <div className="flex justify-end pt-1">
+      <div className="job-archive-toolbar pt-1">
+        <p className="section-copy">{t("queue.archiveConfirm")}</p>
         <button
           type="button"
-          className="btn btn-error btn-outline btn-sm"
-          disabled={!hasCompletedJobs || isClearingCompleted}
-          onClick={() => void handleClearCompleted()}
+          className="btn btn-outline btn-sm"
+          disabled={!hasCompletedJobs || isArchivingCompleted}
+          onClick={() => void handleArchiveCompleted()}
+          title={t("queue.archiveConfirm")}
         >
-          {isClearingCompleted ? <span className="loading loading-spinner loading-xs" /> : null}
+          {isArchivingCompleted ? <span className="loading loading-spinner loading-xs" /> : null}
           {t("queue.clearCompleted")}
         </button>
       </div>
+      {archivedJobs.length > 0 ? (
+        <details className="job-archive">
+          <summary>{t("queue.archivedJobs")} · {t("queue.archivedCount", { count: archivedJobs.length })}</summary>
+          <ul>
+            {archivedJobs.map((job) => <li key={job.id}>
+              <span>{job.outputFileName ?? job.inputFileName}</span>
+              <div className="job-archive__actions">
+                {job.downloadUrl ? <a className="btn btn-success btn-sm" href={job.downloadUrl} target="folio-download">{t("common.download")}</a> : null}
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => void handleRestoreArchived(job.id)}>{t("queue.restoreFromArchive")}</button>
+                <button type="button" className="btn btn-error btn-outline btn-sm" onClick={() => void handleDelete(job)}>{t("queue.delete")}</button>
+              </div>
+            </li>)}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }

@@ -9,6 +9,8 @@ import { JobsTable } from "./components/TranslationsPage";
 import { MetadataEditorPage } from "./components/MetadataEditorPage";
 import { DevicePage } from "./components/DevicePage";
 import { ReadingLogPage } from "./components/ReadingLogPage";
+import { SettingsPage } from "./components/SettingsPage";
+import { ProcessingPreflightPanel } from "./components/ProcessingPreflightPanel";
 import { useEpubTranslation } from "./components/EpubTranslationStatus/useEpubTranslation";
 import { usePdfConversion } from "./components/EpubTranslationStatus/usePdfConversion";
 import {
@@ -184,8 +186,10 @@ function ConversionSection({
   showStatus = true,
 }: ConversionSectionProps) {
   const { t } = useTranslation();
+  const [preflightReady, setPreflightReady] = useState(false);
+  const [isPreviewingSample, setIsPreviewingSample] = useState(false);
   const activeFileName = file?.name ?? inputFileName;
-  const canStart = Boolean(file) && !isUploading;
+  const canStart = Boolean(file) && !isUploading && !isPreviewingSample && preflightReady;
   const viewStatus = (!activeFileName || phase === "pending" ? "idle" : phase) as
     | "idle"
     | "uploading"
@@ -203,12 +207,12 @@ function ConversionSection({
         </div>
       </header>
 
-      <div className="conversion-layout">
+      <div className={`conversion-layout ${file ? "has-file" : ""}`}>
         <section className="conversion-intake workbench-surface workbench-section" aria-label={t("queue.addFile")}>
           <FilePicker
             onFileSelected={onFileSelected}
             onFileCleared={onFileCleared}
-            disabled={isUploading}
+            disabled={isUploading || isPreviewingSample}
             accept={accept}
             allowedExtensions={allowedExtensions}
             emptyLabel={emptyLabel}
@@ -227,6 +231,13 @@ function ConversionSection({
                 {isUploading ? t("queue.uploading") : isBusy ? t("queue.addToQueue") : primaryAction}
               </button>
             )}
+          />
+
+          <ProcessingPreflightPanel
+            file={file}
+            kind={statusMode === "conversion" ? "pdf-conversion" : "epub-translation"}
+            onReadinessChange={setPreflightReady}
+            onPreviewingChange={setIsPreviewingSample}
           />
 
           {showStatus && !queueJobs.some(
@@ -344,7 +355,7 @@ function FormatWorkspace() {
           emptyLabel={t("queue.selectPdf")}
           invalidFileMessage={t("queue.onlyPdf")}
           queueJobs={pdfQueue.jobs}
-          jobsContent={<JobsTable jobs={pdfQueue.jobs} onRefresh={pdfQueue.refresh} />}
+          jobsContent={<JobsTable jobs={pdfQueue.jobs} onRefresh={pdfQueue.refresh} enableMetadataEditor />}
           statusMode="conversion"
           showStatus={false}
         />
@@ -353,13 +364,14 @@ function FormatWorkspace() {
   );
 }
 
-function NavigationIcon({ type }: { type: "translate" | "convert" | "metadata" | "device" | "reading" }) {
+function NavigationIcon({ type }: { type: "translate" | "convert" | "metadata" | "device" | "reading" | "settings" }) {
   const paths = {
     translate: <><path d="M5 19 19 5" /><path d="M10 5h9v9" /></>,
     convert: <><path d="M4 8h14" /><path d="m15 5 3 3-3 3" /><path d="M20 16H6" /><path d="m9 13-3 3 3 3" /></>,
     metadata: <><rect x="5" y="4" width="14" height="16" rx="2" /><path d="M8 8h8M8 12h6M8 16h4" /></>,
     device: <><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M10 18h4" /></>,
     reading: <><path d="M4 5.5A3.5 3.5 0 0 1 7.5 4H11v16H7.5A3.5 3.5 0 0 0 4 21.5z" /><path d="M20 5.5A3.5 3.5 0 0 0 16.5 4H13v16h3.5a3.5 3.5 0 0 1 3.5 1.5z" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3z" /></>,
   };
 
   return (
@@ -416,6 +428,10 @@ function TopNavigation() {
               <NavigationIcon type="reading" />
               {t("nav.reading")}
             </NavLink>
+            <NavLink to="/settings" className="app-nav__link" onClick={closeMenu}>
+              <NavigationIcon type="settings" />
+              {t("nav.settings")}
+            </NavLink>
           </div>
           <LanguageSelector />
         </nav>
@@ -440,6 +456,7 @@ export function App() {
         <Route path="/metadata/device" element={<MetadataEditorPage />} />
         <Route path="/device" element={<DevicePage />} />
         <Route path="/reading-log" element={<ReadingLogPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/" element={<Navigate to="/translations" replace />} />
         <Route path="*" element={<Navigate to="/translations" replace />} />
       </Routes>

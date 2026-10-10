@@ -7,6 +7,12 @@ type FilePickerActionContext = {
   clear: () => void;
 };
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 type FilePickerProps = {
   onFileSelected: (file: File) => void;
   onFileCleared?: () => void;
@@ -52,7 +58,7 @@ export function FilePicker({
     typeof actions === "function" ? actions({ file, clear: clearSelectedFile }) : actions;
 
   return (
-    <div className="file-picker">
+    <div className={`file-picker ${file ? "has-file" : ""}`}>
       <div
         className={`file-dropzone ${error ? "has-error" : ""} ${isDragging ? "is-dragging" : ""} ${isDisabled ? "is-disabled" : ""}`}
         role="button"
@@ -102,7 +108,7 @@ export function FilePicker({
               {file.name}
             </span>
             <span className="file-dropzone__meta">
-              {(file.size / 1024 / 1024).toFixed(1)} MB
+              {formatFileSize(file.size)}
             </span>
           </>
         ) : (

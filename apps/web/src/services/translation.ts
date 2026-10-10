@@ -7,6 +7,73 @@ export function getEpubCoverUrl(jobId: string): string {
   return `${API_BASE_URL}/api/jobs/${jobId}/metadata/cover`;
 }
 
+export type GlossaryEntry = { source: string; target: string; type?: "name" | "place" | "term" | "title" };
+export type JobRevision = { id: string; createdAt: string; fileName: string };
+export type ProcessingPreflight = {
+  translation: { provider: "OpenRouter" | "custom"; mode: "mock" | "live"; model: string | null; keyConfigured: boolean; batchTokenEstimate: number; hardTotalTokenLimit: null };
+  pdf: { provider: "local" | "OpenRouter"; mode: "local" | "live"; model: string | null; maxPages: number; maxOutputTokensPerRequest: number | null; hardTotalSpendLimit: null };
+  costEstimate: null;
+  costNote: string;
+  aiBudget: {
+    caps: { deployment: AiBudgetUsage; job: AiBudgetUsage; samples: AiBudgetUsage; sample: AiBudgetUsage; maxOutputTokensPerRequest: number };
+    usage: { deployment: AiBudgetUsage; samples: AiBudgetUsage };
+  };
+};
+export type AiBudgetUsage = { requests: number; inputTokenBound: number; outputTokens: number };
+export type EpubSamplePreview = { chapter: string; chapterCount: number; textCharacters: number; sample: Array<{ source: string; result: string }>; sampleCharacters: number; mock: boolean; originalsModified: false };
+export type PdfSamplePreview = {
+  provider: "local" | "openrouter";
+  pageCount: number | null;
+  pages: Array<{ page: number; text: string; needsOcr: boolean }>;
+  structure?: { bookmarkCount: number; tocInSample: boolean; warnings: Array<"no-bookmarks" | "no-index-in-sample" | "ocr-needed"> };
+  originalsModified: false;
+};
+
+export async function fetchProcessingPreflight(): Promise<ProcessingPreflight> {
+  return readApiData<ProcessingPreflight>(await fetch(`${API_BASE_URL}/api/preflight`, { cache: "no-store" }));
+}
+
+async function requestFilePreview<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return readApiData<T>(await fetch(`${API_BASE_URL}${path}`, { method: "POST", body: formData }));
+}
+
+export function previewEpubTranslation(file: File): Promise<EpubSamplePreview> {
+  return requestFilePreview("/api/previews/epub-translation", file);
+}
+
+export function previewPdfConversion(file: File): Promise<PdfSamplePreview> {
+  return requestFilePreview("/api/previews/pdf-conversion", file);
+}
+
+export async function fetchJobGlossary(jobId: string): Promise<GlossaryEntry[]> {
+  return readApiData<GlossaryEntry[]>(await fetch(`${API_BASE_URL}/api/jobs/${jobId}/glossary`, { cache: "no-store" }));
+}
+
+export async function updateJobGlossary(jobId: string, glossary: GlossaryEntry[]): Promise<GlossaryEntry[]> {
+  return readApiData<GlossaryEntry[]>(await fetch(`${API_BASE_URL}/api/jobs/${jobId}/glossary`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ glossary }),
+  }));
+}
+
+export async function fetchJobRevisions(jobId: string): Promise<JobRevision[]> {
+  return readApiData<JobRevision[]>(await fetch(`${API_BASE_URL}/api/jobs/${jobId}/revisions`, { cache: "no-store" }));
+}
+
+export async function restoreJobRevision(jobId: string, revisionId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/revisions/${encodeURIComponent(revisionId)}/restore`, { method: "POST" });
+  await readApiData(response);
+}
+
+export function getJobOriginalUrl(jobId: string): string {
+  return `${API_BASE_URL}/api/jobs/${jobId}/original/download`;
+}
+
+export function getJobRevisionUrl(jobId: string, revisionId: string): string {
+  return `${API_BASE_URL}/api/jobs/${jobId}/revisions/${encodeURIComponent(revisionId)}/download`;
+}
+
 export async function requestEpubTranslation(file: File): Promise<{ jobId: string }> {
   const formData = new FormData();
   formData.append("file", file);
@@ -161,9 +228,24 @@ export async function deleteTranslationJob(jobId: string): Promise<void> {
   }
 }
 
-export async function deleteCompletedTranslationJobs(): Promise<number> {
+export async function archiveCompletedTranslationJobs(): Promise<number> {
+  const response = await fetch(`${API_BASE_URL}/api/jobs/completed/archive`, { method: "POST" });
+  const data = await readApiData<{ archived: number }>(response);
+  return data.archived;
+}
+
+export async function setTranslationJobArchived(jobId: string, archived: boolean): Promise<TranslationJob> {
+  const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/archive`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archived }),
+  });
+  const data = await readApiData<Omit<TranslationJob, "downloadUrl">>(response);
+  return { ...data, downloadUrl: data.status === "done" ? `${API_BASE_URL}/api/jobs/${jobId}/download` : undefined };
+}
+
+export async function deleteCompletedTranslationJobs(confirmation: "DELETE COMPLETED JOBS"): Promise<number> {
   const response = await fetch(`${API_BASE_URL}/api/jobs/completed`, {
     method: "DELETE",
+    headers: { "X-Folio-Confirm": confirmation },
   });
   const data = await readApiData<{ deleted: number }>(response);
   return data.deleted;

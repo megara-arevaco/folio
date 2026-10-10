@@ -115,6 +115,7 @@ export function createJobQueue({ jobs, persistJob, schedulePersist, processJob, 
             ? "Preparado para generar EPUB"
             : "En cola",
       };
+      job.lastProgressAt = new Date();
       schedulePersist(job);
     }
   }

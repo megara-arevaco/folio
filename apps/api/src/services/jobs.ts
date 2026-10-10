@@ -1,16 +1,16 @@
 import { ResourceLocks, fileOperations } from "./shared/files";
 import { createWriteStream } from "node:fs";
-import { access, mkdir, rename, rm, link } from "node:fs/promises";
+import { access, copyFile, mkdir, readdir, rename, rm, stat, link } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import type { MultipartFile } from "@fastify/multipart";
 import { processEpub } from "./epub";
 import { processPdfToEpub } from "./pdf";
-import type { Job, JobKind, JobProgress, PublicJob } from "../types";
+import type { GlossaryEntry, Job, JobKind, JobProgress, PublicJob } from "../types";
 import { buildJobPaths } from "./jobs/paths";
 import { JobPersistence, readJobsFromDisk } from "./jobs/persistence";
-import { getJobsTmpRoot } from "./jobs/paths";
+import { getJobDir, getJobsTmpRoot } from "./jobs/paths";
 import { createJobQueue } from "./jobs/queue";
 import { createJobRunner } from "./jobs/runner";
 import { stopJobTimer, markPaused, markPausing, markFailed, markDone, prepareResume } from "./jobs/state";
@@ -69,6 +69,8 @@ export function createJob(
     translationMemory: {},
     queueOrder: null,
     elapsedMs: 0,
+    lastProgressAt: new Date(),
+    archived: false,
     createdAt: new Date(),
     startedAt: null,
     completedAt: null,
@@ -121,7 +123,29 @@ async function deleteJobUnlocked(id: string): Promise<"deleted" | "processing" |
   jobs.delete(id);
   queue.remove(job);
   await persistence.delete(job);
+  if (resolve(job.outputFilePath) !== resolve(getJobDir(job), basename(job.outputFilePath))) {
+    await rm(job.outputFilePath, { force: true });
+  }
   return "deleted";
+}
+
+export async function archiveCompletedJobs(): Promise<number> {
+  const completed = Array.from(jobs.values()).filter((job) => job.status === "done" && !job.archived);
+  await Promise.all(completed.map((job) => setJobArchived(job.id, true)));
+  return completed.length;
+}
+
+export function setJobArchived(id: string, archived: boolean): Promise<Job | "missing" | "not-ready"> {
+  return withJobOperation(id, async () => {
+    const job = jobs.get(id);
+    if (!job) return "missing";
+    if (job.status !== "done") return "not-ready";
+    const previous = job.archived;
+    job.archived = archived;
+    try { await persistJob(job); }
+    catch (error) { job.archived = previous; throw error; }
+    return job;
+  });
 }
 
 export async function deleteCompletedJobs(): Promise<number> {
@@ -177,6 +201,79 @@ async function renameJobOutputUnlocked(
   return job;
 }
 
+export type JobRevision = { id: string; createdAt: string; fileName: string };
+
+const revisionIdPattern = /^\d{13}-[0-9a-f-]{36}$/;
+
+export function getJobRevisionPath(job: Job, revisionId: string): string | null {
+  if (!revisionIdPattern.test(revisionId)) return null;
+  return resolve(getJobDir(job), "revisions", `${revisionId}.epub`);
+}
+
+export async function createJobRevision(job: Job): Promise<JobRevision> {
+  if (job.status !== "done" || !job.outputFileName) throw new Error("El EPUB no está disponible para crear una versión");
+  const id = `${Date.now()}-${randomUUID()}`;
+  const revisionPath = resolve(getJobDir(job), "revisions", `${id}.epub`);
+  await mkdir(dirname(revisionPath), { recursive: true });
+  await copyFile(job.outputFilePath, revisionPath);
+  const details = await stat(revisionPath);
+  return { id, createdAt: details.mtime.toISOString(), fileName: job.outputFileName };
+}
+
+export async function listJobRevisions(job: Job): Promise<JobRevision[]> {
+  const directory = resolve(getJobDir(job), "revisions");
+  let names: string[];
+  try { names = await readdir(directory); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+  const revisions = await Promise.all(names.flatMap((name) => {
+    const id = name.endsWith(".epub") ? name.slice(0, -5) : "";
+    const path = id ? getJobRevisionPath(job, id) : null;
+    return path ? [stat(path).then((details) => ({ id, createdAt: details.mtime.toISOString(), fileName: job.outputFileName ?? name })).catch(() => null)] : [];
+  }));
+  return revisions.filter((revision): revision is JobRevision => revision !== null)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export async function restoreJobRevision(job: Job, revisionId: string): Promise<boolean> {
+  if (job.status !== "done" || !job.outputFileName) return false;
+  const revisionPath = getJobRevisionPath(job, revisionId);
+  if (!revisionPath) return false;
+  try { await access(revisionPath); }
+  catch { return false; }
+  await createJobRevision(job);
+  const temporaryPath = `${job.outputFilePath}.${randomUUID()}.restore`;
+  try {
+    await copyFile(revisionPath, temporaryPath);
+    await rename(temporaryPath, job.outputFilePath);
+  } finally { await rm(temporaryPath, { force: true }).catch(() => undefined); }
+  return true;
+}
+
+export async function setJobGlossary(id: string, entries: GlossaryEntry[]): Promise<Job | "missing" | "not-editable" | "invalid"> {
+  const job = jobs.get(id);
+  if (!job) return "missing";
+  if (job.kind !== "epub-translation" || !["pending", "paused", "error"].includes(job.status)) return "not-editable";
+  if (!Array.isArray(entries) || entries.length > 100) return "invalid";
+  const seen = new Set<string>();
+  const normalized: GlossaryEntry[] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry.source !== "string" || typeof entry.target !== "string" ||
+        entry.source.trim().length === 0 || entry.source.trim().length > 300 ||
+        entry.target.trim().length === 0 || entry.target.trim().length > 300 ||
+        entry.type !== undefined && !["name", "place", "term", "title"].includes(entry.type)) return "invalid";
+    const source = entry.source.trim();
+    const key = source.toLocaleLowerCase();
+    if (seen.has(key)) return "invalid";
+    seen.add(key);
+    normalized.push({ source, target: entry.target.trim(), ...(entry.type ? { type: entry.type } : {}) });
+  }
+  const previous = job.glossary;
+  job.glossary = normalized;
+  try { await persistJob(job); }
+  catch (error) { job.glossary = previous; throw error; }
+  return job;
+}
+
 export function serializeJob(job: Job): PublicJob {
   return {
     id: job.id,
@@ -190,6 +287,8 @@ export function serializeJob(job: Job): PublicJob {
     startedAt: job.startedAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
     elapsedMs: job.elapsedMs,
+    lastProgressAt: job.lastProgressAt?.toISOString() ?? null,
+    archived: job.archived,
     downloadUrl: job.status === "done" ? `/api/jobs/${job.id}/download` : undefined,
   };
 }
@@ -198,6 +297,7 @@ export function updateJobStatus(id: string, status: Job["status"]): void {
   const job = jobs.get(id);
   if (job) {
     job.status = status;
+    job.lastProgressAt = new Date();
     if (status === "processing" && !job.startedAt) {
       job.startedAt = new Date();
     }
@@ -209,6 +309,7 @@ export function updateJobProgress(id: string, progress: JobProgress): void {
   const job = jobs.get(id);
   if (job) {
     job.progress = progress;
+    job.lastProgressAt = new Date();
     schedulePersist(job);
   }
 }
@@ -217,6 +318,7 @@ export function setJobPaused(id: string): void {
   const job = jobs.get(id);
   if (job) {
     markPaused(job);
+    job.lastProgressAt = new Date();
     schedulePersist(job);
   }
 }
@@ -225,6 +327,7 @@ export function setJobPausing(id: string): void {
   const job = jobs.get(id);
   if (job) {
     markPausing(job);
+    job.lastProgressAt = new Date();
     schedulePersist(job);
   }
 }
@@ -233,6 +336,7 @@ export function setJobError(id: string, error: string): void {
   const job = jobs.get(id);
   if (job) {
     markFailed(job, error);
+    job.lastProgressAt = new Date();
     schedulePersist(job);
   }
 }
@@ -242,6 +346,7 @@ export function setJobOutput(id: string, outputFilePath: string): void {
   if (job) {
     job.outputFilePath = outputFilePath;
     job.outputFileName = basename(outputFilePath);
+    job.lastProgressAt = new Date();
     markDone(job);
     schedulePersist(job);
   }
@@ -275,6 +380,7 @@ export async function prepareJobsForShutdown(): Promise<void> {
     if (job.status === "processing" || job.status === "pausing" || job.status === "pending") {
       markPaused(job);
       job.progress = { ...job.progress, message: "Pausada tras cerrar el servidor" };
+      job.lastProgressAt = new Date();
       schedulePersist(job);
     }
   }
@@ -295,6 +401,7 @@ export async function pauseActiveJobs(): Promise<void> {
       ...job.progress,
       message: job.kind === "pdf-conversion" ? "Conversión pausada" : "Traducción pausada",
     };
+    job.lastProgressAt = new Date();
     await persistJob(job);
   }));
 }

@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import { fetchDeviceBook, replaceDeviceBook } from "../services/devices";
+import { fetchDeviceBook, fetchEbookDevices, replaceDeviceBook, uploadDeviceBook, type EbookDevice } from "../services/devices";
+import { addReadingBook } from "../services/readingLog";
 import {
   fetchEpubMetadata,
+  fetchJobRevisions,
   fetchTranslationJob,
+  getJobOriginalUrl,
+  getJobRevisionUrl,
   getEpubCoverUrl,
   readLocalDocumentMetadata,
   renameJobEpub,
+  restoreJobRevision,
   updateEpubMetadata,
+  type JobRevision,
   updateJobEpubCover,
   updateLocalDocumentMetadata,
   type EditableDocumentFormat,
@@ -47,6 +53,11 @@ export function MetadataEditorPage() {
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(jobId ? getEpubCoverUrl(jobId) : null);
   const [fileName, setFileName] = useState("");
+  const [jobInputFileName, setJobInputFileName] = useState("");
+  const [revisions, setRevisions] = useState<JobRevision[]>([]);
+  const [devices, setDevices] = useState<EbookDevice[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [isSendingToDevice, setIsSendingToDevice] = useState(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -59,12 +70,28 @@ export function MetadataEditorPage() {
         setDocumentFormat("epub");
         setAuthorsText(loaded.authors.join("\n"));
         setFileName(job.outputFileName ?? job.inputFileName);
+        setJobInputFileName(job.inputFileName);
         setCoverFile(null);
         setCoverPreview(`${getEpubCoverUrl(jobId)}?v=${Date.now()}`);
         setNotice(null);
       })
       .catch((loadError) => !cancelled && setError(loadError instanceof Error ? loadError.message : t("metadata.loadingMetadataError")))
       .finally(() => !cancelled && setIsLoading(false));
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    let cancelled = false;
+    void fetchJobRevisions(jobId).then((loaded) => { if (!cancelled) setRevisions(loaded); }).catch(() => {
+      if (!cancelled) setError(t("metadata.revisionError"));
+    });
+    void fetchEbookDevices().then((loaded) => {
+      if (!cancelled) {
+        setDevices(loaded);
+        setSelectedDeviceId((current) => current || loaded[0]?.id || "");
+      }
+    }).catch(() => { if (!cancelled) setDevices([]); });
     return () => { cancelled = true; };
   }, [jobId]);
 
@@ -148,6 +175,7 @@ export function MetadataEditorPage() {
           setCoverFile(null);
         }
         setFileName(await renameJobEpub(jobId, fileName));
+        setRevisions(await fetchJobRevisions(jobId).catch(() => revisions));
         setNotice(t("metadata.savedProcessed"));
       } else if (file) {
         const blob = await updateLocalDocumentMetadata(file, values, documentFormat === "epub" ? coverFile : null);
@@ -187,6 +215,62 @@ export function MetadataEditorPage() {
       setError(saveError instanceof Error ? saveError.message : t("metadata.saveError"));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function addCurrentBookToReadingLog() {
+    setError(null);
+    try {
+      await addReadingBook({
+        openLibraryKey: null,
+        title: metadata.title.trim() || fileName || jobId || t("metadata.processedEpub"),
+        authors: authorsText.split("\n").map((author) => author.trim()).filter(Boolean),
+        coverUrl: null,
+        firstPublishYear: null,
+        isbn: null,
+        categories: [],
+      });
+      navigate("/reading-log");
+    } catch (addError) {
+      setError(addError instanceof Error ? addError.message : t("metadata.readingError"));
+    }
+  }
+
+  async function sendProcessedBookToDevice() {
+    if (!jobId || !selectedDeviceId || isSendingToDevice) return;
+    setIsSendingToDevice(true);
+    setError(null);
+    try {
+      const job = await fetchTranslationJob(jobId);
+      if (!job.downloadUrl) throw new Error(t("metadata.sendError"));
+      const response = await fetch(job.downloadUrl);
+      if (!response.ok) throw new Error(t("metadata.sendError"));
+      const epub = await response.blob();
+      const file = new File([epub], fileName || job.outputFileName || "book.epub", { type: "application/epub+zip" });
+      await uploadDeviceBook(selectedDeviceId, file);
+      navigate("/device");
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : t("metadata.sendError"));
+    } finally { setIsSendingToDevice(false); }
+  }
+
+  async function restoreRevision(revisionId: string) {
+    if (!jobId || !window.confirm(t("metadata.restoreConfirm"))) return;
+    setError(null);
+    try {
+      await restoreJobRevision(jobId, revisionId);
+      const [loaded, job, loadedRevisions] = await Promise.all([
+        fetchEpubMetadata(jobId), fetchTranslationJob(jobId), fetchJobRevisions(jobId),
+      ]);
+      setMetadata(loaded);
+      setAuthorsText(loaded.authors.join("\n"));
+      setFileName(job.outputFileName ?? job.inputFileName);
+      setJobInputFileName(job.inputFileName);
+      setRevisions(loadedRevisions);
+      setCoverPreview(`${getEpubCoverUrl(jobId)}?v=${Date.now()}`);
+      setNotice(t("metadata.revisionRestored"));
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : t("metadata.revisionError"));
     }
   }
 
@@ -266,8 +350,40 @@ export function MetadataEditorPage() {
           <div className="metadata-form">
             <div>
               <h2 className="section-title">{t("metadata.bookRecord")}</h2>
-              <p className="section-copy">{file?.name ?? (jobId ? t("metadata.processedEpub") : t("metadata.selectedFile"))}</p>
+              <p className="section-copy">{jobId ? fileName || t("metadata.processedEpub") : file?.name ?? t("metadata.selectedFile")}</p>
             </div>
+            {jobId ? (
+              <>
+                <section className="job-provenance" aria-label={t("metadata.currentResult")}>
+                  <div><strong>{t("metadata.originalSource")}</strong><span>{jobInputFileName || t("metadata.processedEpub")}</span></div>
+                  <div><strong>{t("metadata.currentResult")}</strong><span>{fileName}</span></div>
+                  <a className="btn btn-outline btn-sm" href={getJobOriginalUrl(jobId)} target="folio-download">{t("metadata.downloadOriginal")}</a>
+                </section>
+                <div className="metadata-result-actions">
+                  <button type="button" className="btn btn-outline btn-sm" onClick={() => void addCurrentBookToReadingLog()}>{t("metadata.addToReading")}</button>
+                  {devices.length ? (
+                    <>
+                      <label className="field-label metadata-device-select"><span>{t("metadata.toDevice")}</span>
+                        <select className="select select-bordered" value={selectedDeviceId} onChange={(event) => setSelectedDeviceId(event.target.value)}>
+                          {devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
+                        </select>
+                      </label>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={() => void sendProcessedBookToDevice()} disabled={isSendingToDevice || !selectedDeviceId}>{isSendingToDevice ? t("device.sending") : t("metadata.send")}</button>
+                    </>
+                  ) : <p className="field-help">{t("metadata.noDevice")} <a href="/device">{t("nav.device")}</a></p>}
+                </div>
+                <section className="metadata-version-history" aria-labelledby="metadata-versions-title">
+                  <h3 className="section-title" id="metadata-versions-title">{t("metadata.versionsTitle")}</h3>
+                  {revisions.length ? <ul>{revisions.map((revision) => <li key={revision.id}>
+                    <span>{new Date(revision.createdAt).toLocaleString()} · {revision.fileName}</span>
+                    <div className="metadata-version-actions">
+                      <a className="btn btn-outline btn-sm" href={getJobRevisionUrl(jobId, revision.id)} target="folio-download">{t("common.download")}</a>
+                      <button type="button" className="btn btn-outline btn-sm" onClick={() => void restoreRevision(revision.id)}>{t("metadata.restoreRevision")}</button>
+                    </div>
+                  </li>)}</ul> : <p className="section-copy">{t("metadata.noRevisions")}</p>}
+                </section>
+              </>
+            ) : null}
             <label className="field-label">
               <span>{t("metadata.fileName")}</span>
               <input className="input input-bordered w-full" required readOnly={!jobId} value={fileName} onChange={(event) => { setFileName(event.target.value); markDocumentEdited(); }} placeholder={t("metadata.filePlaceholder", { format: documentFormat })} />

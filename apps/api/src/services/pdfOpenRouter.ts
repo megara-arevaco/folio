@@ -16,6 +16,8 @@ import {
   type ExtractedPdfPage, type PdfBookmark, type PdfBookAsset,
 } from "./pdfBook";
 import type { ProcessPdfOptions } from "./pdf";
+import { getOpenRouterApiKey } from "./openRouterSettings";
+import { AiBudgetExceededError, reserveAiBudget } from "./aiBudget";
 
 const execFileAsync = promisify(execFile);
 const pdfJsRoot = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
@@ -40,8 +42,8 @@ function integerSetting(name: string, fallback: number, min: number, max: number
 }
 
 export function getPdfConversionConfig(): PdfConversionConfig {
-  const apiKey = process.env.LLM_API_KEY?.trim() || "";
-  if (!apiKey || apiKey === "replace-me") throw new Error("Configura LLM_API_KEY con tu clave de OpenRouter para convertir PDF, o PDF_CONVERSION_PROVIDER=local para usar el conversor local");
+  const apiKey = getOpenRouterApiKey() || "";
+  if (!apiKey) throw new Error("Configura una clave de OpenRouter en Ajustes para convertir PDF, o PDF_CONVERSION_PROVIDER=local para usar el conversor local");
   const engine = process.env.PDF_OPENROUTER_ENGINE || "native";
   if (!["native", "mistral-ocr", "cloudflare-ai"].includes(engine)) throw new Error("PDF_OPENROUTER_ENGINE debe ser native, mistral-ocr o cloudflare-ai");
   return {
@@ -212,8 +214,9 @@ async function extractFigures(pdfPath: string, page: ExtractedPdfPage, cacheDir:
 export type OpenRouterPdfOptions = ProcessPdfOptions & {
   config?: PdfConversionConfig;
   fetchImpl?: typeof fetch;
-  /** Used by the comparison CLI to bound the number of paid pages. */
+  /** Used by the comparison CLI and sample preview to bound provider work. */
   pageLimit?: number;
+  onPreviewPages?: (pages: ExtractedPdfPage[]) => void;
 };
 
 export async function processPdfWithOpenRouter(pdfPath: string, options: OpenRouterPdfOptions = {}): Promise<Buffer> {
@@ -221,6 +224,7 @@ export async function processPdfWithOpenRouter(pdfPath: string, options: OpenRou
   const fetchImpl = options.fetchImpl || fetch;
   const buffer = await readDocument(pdfPath);
   const fingerprint = createHash("sha256").update(buffer).update(JSON.stringify({ version: EXTRACTION_VERSION, baseUrl: config.baseUrl, model: config.model, engine: config.engine, batch: config.pagesPerBatch, maxTokens: config.maxTokens })).digest("hex");
+  const budgetContext = options.budgetContext ?? { kind: "job" as const, id: `pdf-${fingerprint}` };
   const cacheDir = join(options.cacheDir || join(dirname(pdfPath), "pdf-cache"), fingerprint);
   await mkdir(cacheDir, { recursive: true });
   const sourcePdf = await PDFDocument.load(buffer, { updateMetadata: false });
@@ -304,12 +308,14 @@ export async function processPdfWithOpenRouter(pdfPath: string, options: OpenRou
             { role: "user", content: [{ type: "text", text: userText }, file] },
           ];
           if (annotations.length) messages.push({ role: "assistant", content: "", annotations }, { role: "user", content: "Using the parsed attachment, return the complete transcription in the required JSON schema." });
+          const requestBody = JSON.stringify({ model: config.model, messages, plugins: [{ id: "file-parser", pdf: { engine: config.engine } }], response_format: { type: "json_schema", json_schema: { name: "pdf_pages", strict: true, schema: PAGE_SCHEMA } }, provider: { require_parameters: true }, max_tokens: config.maxTokens });
+          await reserveAiBudget(budgetContext, requestBody, config.maxTokens);
           report.requests++;
           report.totalRequests++;
           const response = await fetchImpl(`${config.baseUrl}/chat/completions`, {
             method: "POST",
             headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json", ...(process.env.OPENROUTER_SITE_URL ? { "HTTP-Referer": process.env.OPENROUTER_SITE_URL } : {}), ...(process.env.OPENROUTER_APP_NAME ? { "X-OpenRouter-Title": process.env.OPENROUTER_APP_NAME } : {}) },
-            body: JSON.stringify({ model: config.model, messages, plugins: [{ id: "file-parser", pdf: { engine: config.engine } }], response_format: { type: "json_schema", json_schema: { name: "pdf_pages", strict: true, schema: PAGE_SCHEMA } }, provider: { require_parameters: true }, max_tokens: config.maxTokens }),
+            body: requestBody,
             signal: controller.signal,
           });
           const data = await readBoundedJson(response).catch((error) => { if (error instanceof SyntaxError) return {}; throw error; }) as { error?: { code?: number; message?: string; metadata?: { file_annotations?: unknown } }; usage?: unknown; choices?: { finish_reason?: string; message?: { content?: string; annotations?: unknown } }[] };
@@ -325,7 +331,7 @@ export async function processPdfWithOpenRouter(pdfPath: string, options: OpenRou
               await preserveOriginalPages(numbers);
               return;
             }
-            throw new PdfRequestError(`OpenRouter respondió ${status}. ${status === 401 ? "Comprueba LLM_API_KEY." : status === 402 ? "Saldo insuficiente en OpenRouter." : status === 400 || status === 404 ? "Comprueba que el modelo admite el motor PDF y salida JSON estructurada." : "No se pudo procesar el PDF."} ${detail}`, status === 429 || status >= 500, status === 413);
+            throw new PdfRequestError(`OpenRouter respondió ${status}. ${status === 401 ? "Comprueba la clave de OpenRouter en Ajustes." : status === 402 ? "Saldo insuficiente en OpenRouter." : status === 400 || status === 404 ? "Comprueba que el modelo admite el motor PDF y salida JSON estructurada." : "No se pudo procesar el PDF."} ${detail}`, status === 429 || status >= 500, status === 413);
           }
           const choice = data.choices?.[0];
           if (choice?.finish_reason === "content_filter") {
@@ -366,6 +372,7 @@ export async function processPdfWithOpenRouter(pdfPath: string, options: OpenRou
           return;
         } catch (error) {
           if (error instanceof PauseRequestedError || options.shouldPause?.()) throw new PauseRequestedError();
+          if (error instanceof AiBudgetExceededError) throw error;
           if (validated || ["EACCES", "EPERM", "ENOSPC", "EROFS", "EIO"].includes(String((error as NodeJS.ErrnoException)?.code))) throw error;
           lastError = error;
           if (error instanceof PdfRequestError && error.split && numbers.length > 1) break;
@@ -390,6 +397,7 @@ export async function processPdfWithOpenRouter(pdfPath: string, options: OpenRou
     }
     checkPause();
     const pages = Array.from({ length: total }, (_, index) => completed.get(index + 1)!);
+    options.onPreviewPages?.(pages);
     if (pages.every((page) => page.isBlank)) throw new Error("El PDF no contiene texto ni ilustraciones recuperables");
     const assets: PdfBookAsset[] = [];
     for (const page of pages) {

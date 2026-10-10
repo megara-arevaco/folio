@@ -4,6 +4,7 @@ import { openValidatedZip } from "./shared/zip";
 import * as cheerio from "cheerio";
 import { GlossaryEntry, JobProgress } from "../types";
 import { generateGlossary, reviewTranslationBatch, translateWithRetry } from "./llm";
+import type { AiBudgetContext } from "./aiBudget";
 
 type AnyNode = {
   type: string;
@@ -56,6 +57,7 @@ export type ProcessEpubOptions = {
   onMemoryUpdate?: (memory: TranslationMemory) => void;
   onChapterCheckpoint?: (entryName: string) => void;
   enableReview?: boolean;
+  budgetContext?: AiBudgetContext;
 };
 
 export class PauseRequestedError extends Error {
@@ -173,6 +175,7 @@ export async function processEpub(
     onMemoryUpdate,
     onChapterCheckpoint,
     enableReview = false,
+    budgetContext = { kind: "job", id: "unassigned" },
   } = options;
   const zip = openValidatedZip(epubPath);
   const entries = zip.getEntries();
@@ -225,6 +228,7 @@ export async function processEpub(
         ...item,
         id: `${index}_${item.id}`,
       })) ?? []),
+      budgetContext,
     );
     onGlossary?.(activeGlossary);
   }
@@ -248,7 +252,7 @@ export async function processEpub(
       batches[batchIndex + 1]?.map((item) => item.text).join(" ").slice(0, 700),
     ].filter(Boolean).join("\n---\n");
     const fresh = missing.length > 0
-      ? await translateWithRetry(missing, activeGlossary, context)
+      ? await translateWithRetry(missing, activeGlossary, context, budgetContext)
       : [];
     const freshById = new Map(fresh.map((item) => [item.id, item.text]));
     for (const original of missing) {
@@ -273,7 +277,7 @@ export async function processEpub(
     let offset = 0;
     for (const batch of batches) {
       const current = translatedItems.slice(offset, offset + batch.length);
-      const reviewed = await reviewTranslationBatch(current, activeGlossary);
+      const reviewed = await reviewTranslationBatch(current, activeGlossary, budgetContext);
       translatedItems.splice(offset, current.length, ...reviewed);
       offset += batch.length;
     }

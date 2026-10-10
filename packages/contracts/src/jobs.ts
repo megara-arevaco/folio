@@ -19,6 +19,8 @@ export type PublicJob = {
   startedAt: string | null;
   completedAt: string | null;
   elapsedMs: number;
+  lastProgressAt: string | null;
+  archived: boolean;
   downloadUrl?: string;
 };
 

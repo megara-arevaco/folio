@@ -5,14 +5,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
 
-export async function launchServer(dataRoot: string) {
+export async function launchServer(dataRoot: string, overrides: Record<string, string | undefined> = {}) {
   const child = spawn(process.execPath, [resolve("dist/api/start.js")], {
     env: { ...process.env, HOST: "127.0.0.1", PORT: "0", FOLIO_DATA_DIR: dataRoot,
       FOLIO_ENV_FILE: join(dataRoot, ".env"), LLM_MOCK: "true", LLM_API_KEY: "",
       PDF_CONVERSION_PROVIDER: "local", PDF_OCR: "false",
       JOBS_TMP_ROOT: join(dataRoot, "jobs"), OUTPUT_DIR: join(dataRoot, "books"),
       READING_DB_PATH: join(dataRoot, "reading-log.sqlite"), READING_LOG_PATH: join(dataRoot, "reading-log.json"),
-      EBOOK_DEVICE_ROOTS: join(dataRoot, "devices"), DEVICE_BRIDGE_URL: "" },
+      EBOOK_DEVICE_ROOTS: join(dataRoot, "devices"), DEVICE_BRIDGE_URL: "", ...overrides },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

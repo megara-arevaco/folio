@@ -85,7 +85,7 @@ Loquet usa Futura PT, Poynter Oldstyle Display y Orpheus Pro. La adaptación usa
 
 - Aplicación a todo el ancho, sin borde exterior ni sombra.
 - Cabecera horizontal marfil con regla fina; contenedor máximo de 88rem y altura de 7rem en escritorio.
-- Marca serif a la izquierda, navegación de cinco destinos a la derecha. Ruta activa con subrayado ocre, no solo un cambio de color.
+- Marca serif a la izquierda, navegación de seis destinos —incluidos Ajustes— a la derecha. Ruta activa con subrayado ocre, no solo un cambio de color.
 - Área de trabajo con máximo de 88rem y padding de 4.5rem arriba, 3rem lateral y 5rem abajo.
 - Titular de 44–72px, seguido de bloques operativos piedra con padding fluido de 24–48px.
 - Entrada de archivo antes de la cola; metadatos conserva portada y formulario; dispositivo conserva su tabla; lecturas conserva sus portadas de 136 × 204px y grupos mensuales.

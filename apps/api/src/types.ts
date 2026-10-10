@@ -23,6 +23,8 @@ export type Job = {
   translationMemory: Record<string, string>;
   queueOrder: number | null;
   elapsedMs: number;
+  lastProgressAt: Date | null;
+  archived: boolean;
   createdAt: Date;
   startedAt: Date | null;
   completedAt: Date | null;

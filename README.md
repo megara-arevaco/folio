@@ -29,6 +29,7 @@ configure.
 - Keeps EPUB translation jobs in a persistent queue with progress, pause, resume,
   and queue-order controls.
 - Converts PDFs into downloadable EPUBs using either OpenRouter or local processing.
+- Stores an OpenRouter API key in server-side settings for EPUB translation and PDF conversion.
 - Edits EPUB and PDF metadata, including title, authors, language, and description.
 - Replaces EPUB covers and edits books already processed by Folio.
 - Downloads updated files or overwrites a local file when the browser grants permission.
@@ -100,17 +101,20 @@ configuration and compiled web files.
 
 ### Translate an EPUB
 
-Open **Traducir EPUB**, select or drop an English `.epub` file, and start the
-translation. The jobs table shows progress and provides the available controls
-for pausing, resuming, and managing the queue.
+Open **Ajustes** to save an OpenRouter API key, then select **Traducir EPUB**, choose
+an English `.epub` file, and start the translation. The key is stored on the server
+and is never returned to the browser. You can also configure `LLM_API_KEY` in `.env`;
+a key saved in Settings takes precedence. The jobs table shows progress and provides
+the available controls for pausing, resuming, and managing the queue.
 
 When processing finishes, download the output or open the book's metadata editor.
 Jobs and outputs are stored on the server, so finished books remain available
 when you return to the application.
 
 The supplied `.env.example` enables `LLM_MOCK=true` for development. Set it to
-`false` and configure the provider to produce real translations. Mock mode is
-for testing the workflow, not evaluating translation quality.
+`false` and save an OpenRouter API key in **Ajustes** or configure it in `.env` to
+produce real translations. Mock mode is for testing the workflow, not evaluating
+translation quality.
 
 ### Convert a PDF
 
@@ -118,10 +122,11 @@ Open **Convertir PDF**, select a PDF, and start conversion. A completed job prod
 an EPUB that you can download or edit.
 
 `PDF_CONVERSION_PROVIDER=openrouter` sends PDF batches through OpenRouter and
-builds the EPUB locally. Its model is configured independently from the EPUB
-translation model. `PDF_CONVERSION_PROVIDER=local` uses the local PDF.js and
-Tesseract pipeline instead. Provider failures do not silently switch to local
-conversion, and `LLM_MOCK` does not make OpenRouter PDF conversion free.
+builds the EPUB locally. It uses the key saved in **Ajustes**, or `LLM_API_KEY` if
+no key is saved there. Its model is configured independently from the EPUB translation
+model. `PDF_CONVERSION_PROVIDER=local` uses the local PDF.js and Tesseract pipeline
+instead. Provider failures do not silently switch to local conversion, and `LLM_MOCK`
+does not make OpenRouter PDF conversion free.
 
 See the [PDF conversion guide](docs/pdf-conversion.md) for processing engines,
 limits, OCR configuration, and quality considerations.
@@ -196,13 +201,15 @@ PDF_CONVERSION_PROVIDER=local
 ```
 
 For OpenRouter PDF conversion, set `PDF_CONVERSION_PROVIDER=openrouter` and choose
-an appropriate `PDF_OPENROUTER_MODEL`. The API reuses `LLM_API_BASE_URL` and
-`LLM_API_KEY`; these credentials are never sent to the browser.
+an appropriate `PDF_OPENROUTER_MODEL`. The API reuses `LLM_API_BASE_URL` and the key
+saved in **Ajustes**, falling back to `LLM_API_KEY` when no key is saved. Credentials
+are never sent to the browser.
 
 The server loads `.env` from its working directory. `FOLIO_ENV_FILE` selects a
-different configuration file, and environment variables take precedence. Restart
-the API after changing configuration. If a Docker deployment supplies those
-variables, recreate its API service to apply changes.
+different configuration file, and process environment variables take precedence over
+`.env`. A key saved in **Ajustes** takes precedence over `LLM_API_KEY` and applies
+immediately; restart the API after changing other configuration. If a Docker
+deployment supplies those variables, recreate its API service to apply changes.
 
 Validate changes before committing:
 
@@ -283,8 +290,9 @@ for the original translation specification.
 ## Data locations and privacy
 
 Set `FOLIO_DATA_DIR` to choose the server's data directory. The example uses
-`./data`, which contains `reading-log.sqlite`, `jobs/`, and `books/`. Docker mounts
-its persistent volume at `/data`.
+`./data`, which contains `settings.json`, `reading-log.sqlite`, `jobs/`, and `books/`.
+Saved provider credentials are kept in `settings.json` with owner-only file permissions.
+Docker mounts its persistent volume at `/data`.
 
 `JOBS_TMP_ROOT`, `OUTPUT_DIR`, `READING_DB_PATH`, and `READING_LOG_PATH` allow
 existing data locations to be reused. Without `FOLIO_DATA_DIR`, the server retains
@@ -297,4 +305,7 @@ book services. Device operations use the configured server-side connection or
 bridge. Keep those data flows in mind when processing private documents.
 
 Environment files, credentials, runtime data, processed books, backups, and generated
-E2E reports are excluded from version control.
+E2E reports are excluded from version control. For offline snapshots and restoration,
+see [the data backup guide](docs/data-backup.md); provider settings and credentials are
+intentionally not included in those archives. Folio's persistent request caps are
+explained in [the AI usage limits guide](docs/ai-usage-limits.md).
