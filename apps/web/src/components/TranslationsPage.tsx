@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useNavigate } from "react-router";
 import {
   deleteCompletedTranslationJobs,
@@ -10,31 +12,22 @@ import {
   type TranslationJob,
 } from "../services/translation";
 
-function formatDuration(milliseconds: number): string {
+function formatDuration(milliseconds: number, t: TFunction): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  if (hours > 0) return `${hours} h ${minutes} min`;
-  if (minutes > 0) return `${minutes} min ${seconds} s`;
-  return `${seconds} s`;
+  if (hours > 0) return t("queue.durationHours", { hours, minutes });
+  if (minutes > 0) return t("queue.durationMinutes", { minutes, seconds });
+  return t("queue.durationSeconds", { seconds });
 }
 
-function getElapsedTime(job: TranslationJob, now: number): string | null {
+function getElapsedTime(job: TranslationJob, now: number, t: TFunction): string | null {
   const activeSegment = job.startedAt ? Math.max(0, now - Date.parse(job.startedAt)) : 0;
   const elapsed = (job.elapsedMs ?? 0) + activeSegment;
-  return elapsed > 0 ? formatDuration(elapsed) : null;
+  return elapsed > 0 ? formatDuration(elapsed, t) : null;
 }
-
-const statusLabels: Record<TranslationJob["status"], string> = {
-  pending: "En cola",
-  processing: "Procesando",
-  pausing: "Pausando",
-  paused: "Pausado",
-  done: "Listo",
-  error: "Error",
-};
 
 function ActionIcon({ type }: { type: "pause" | "resume" | "download" | "delete" }) {
   if (type === "pause") return <><path d="M9 5v14" /><path d="M15 5v14" /></>;
@@ -70,6 +63,15 @@ type JobsTableProps = {
 };
 
 export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: JobsTableProps) {
+  const { t } = useTranslation();
+  const statusLabels: Record<TranslationJob["status"], string> = {
+    pending: t("queue.statusQueued"),
+    processing: t("queue.statusProcessing"),
+    pausing: t("queue.statusPausing"),
+    paused: t("queue.statusPaused"),
+    done: t("queue.statusDone"),
+    error: t("queue.statusError"),
+  };
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [isClearingCompleted, setIsClearingCompleted] = useState(false);
@@ -90,7 +92,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
       await pauseTranslationJob(jobId);
       await onRefresh();
     } catch (pauseError) {
-      setError(pauseError instanceof Error ? pauseError.message : "No se ha podido pausar el trabajo");
+      setError(pauseError instanceof Error ? pauseError.message : t("queue.pauseError"));
     }
   }
 
@@ -99,25 +101,25 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
       await resumeTranslationJob(jobId);
       await onRefresh();
     } catch (resumeError) {
-      setError(resumeError instanceof Error ? resumeError.message : "No se ha podido reanudar el trabajo");
+      setError(resumeError instanceof Error ? resumeError.message : t("queue.resumeError"));
     }
   }
 
   async function handleDelete(job: TranslationJob) {
-    if (!window.confirm(`¿Borrar definitivamente "${job.inputFileName}"?`)) {
+    if (!window.confirm(t("queue.deleteConfirm", { name: job.inputFileName }))) {
       return;
     }
     try {
       await deleteTranslationJob(job.id);
       await onRefresh();
     } catch (deleteError) {
-      const message = deleteError instanceof Error ? deleteError.message : "No se ha podido borrar el trabajo";
+      const message = deleteError instanceof Error ? deleteError.message : t("queue.deleteError");
       setError(message);
     }
   }
 
   async function handleClearCompleted() {
-    if (!window.confirm("¿Borrar definitivamente todos los trabajos completados?")) {
+    if (!window.confirm(t("queue.clearConfirm"))) {
       return;
     }
 
@@ -129,7 +131,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
     } catch (deleteError) {
       const message = deleteError instanceof Error
         ? deleteError.message
-        : "No se han podido borrar los trabajos completados";
+        : t("queue.clearError");
       setError(message);
     } finally {
       setIsClearingCompleted(false);
@@ -145,7 +147,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
       await reorderTranslationJob(jobId, position);
       await onRefresh();
     } catch (reorderError) {
-      setError(reorderError instanceof Error ? reorderError.message : "No se ha podido reordenar la cola");
+      setError(reorderError instanceof Error ? reorderError.message : t("queue.reorderError"));
     } finally {
       setDraggedJobId(null);
     }
@@ -156,7 +158,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
       await startQueuedTranslationJob(jobId);
       await onRefresh();
     } catch (startError) {
-      setError(startError instanceof Error ? startError.message : "No se ha podido iniciar el trabajo");
+      setError(startError instanceof Error ? startError.message : t("queue.startError"));
     }
   }
 
@@ -176,9 +178,9 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
             <colgroup><col className="job-column--file" /><col className="job-column--progress" /><col className="job-column--status" /></colgroup>
             <thead>
               <tr>
-                <th>Archivo</th>
-                <th>Progreso</th>
-                <th className="text-right">Estado</th>
+                <th>{t("queue.file")}</th>
+                <th>{t("queue.progress")}</th>
+                <th className="text-right">{t("queue.status")}</th>
               </tr>
             </thead>
             <tbody>
@@ -194,7 +196,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                         : null;
                   const displayedProgressValue =
                     job.status !== "done" && progressValue === 100 ? 99 : progressValue;
-                  const elapsedTime = getElapsedTime(job, now);
+                  const elapsedTime = getElapsedTime(job, now, t);
                   const isActiveJob = job.status === "processing";
                   const isReadyToGenerate =
                     job.kind === "epub-translation" &&
@@ -208,7 +210,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                       key={job.id}
                       className={`${isActiveJob ? "is-active" : ""} ${isPrioritizableJob ? "cursor-grab" : isMetadataEditable ? "cursor-pointer" : ""}`}
                       tabIndex={isMetadataEditable ? 0 : undefined}
-                      aria-label={isMetadataEditable ? `Editar metadatos de ${job.inputFileName}` : undefined}
+                      aria-label={isMetadataEditable ? t("queue.metadataFor", { name: job.inputFileName }) : undefined}
                       onClick={() => handleOpenMetadata(job)}
                       onKeyDown={(event) => {
                         if (isMetadataEditable && (event.key === "Enter" || event.key === " ")) {
@@ -234,16 +236,16 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                         void handleReorder(draggedJobId, position);
                       }}
                     >
-                      <td data-label="Archivo" title={job.inputFileName}>
+                      <td data-label={t("queue.file")} title={job.inputFileName}>
                         <div className="job-file">
                           <span className="job-file__name">
-                            {isPrioritizableJob ? <span className="mr-2 text-base-content/40" title="Arrastra para reordenar">⠿</span> : null}
+                            {isPrioritizableJob ? <span className="mr-2 text-base-content/40" title={t("queue.dragToReorder")}>⠿</span> : null}
                             {job.inputFileName}
                           </span>
                           {elapsedTime ? <span className="operational-meta text-base-content/60">{elapsedTime}</span> : null}
                         </div>
                       </td>
-                      <td data-label="Progreso">
+                      <td data-label={t("queue.progress")}>
                         <div className="job-progress">
                           <div className="job-progress__line">
                           <progress
@@ -262,12 +264,12 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                           ) : null}
                         </div>
                       </td>
-                      <td data-label="Estado" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                      <td data-label={t("queue.status")} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                         <div className="job-status">
                           <span className="job-status__label" data-status={job.status}>{statusLabels[job.status]}</span>
                           {job.status === "processing" || job.status === "paused" || job.status === "error" ? (
                             <IconButton
-                              label={job.status === "processing" ? "Pausar" : "Reanudar"}
+                              label={job.status === "processing" ? t("queue.pause") : t("queue.resume")}
                               className="btn btn-primary btn-square btn-sm"
                               onClick={() => void (job.status === "processing" ? handlePause(job.id) : handleResume(job.id))}
                             >
@@ -276,7 +278,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                           ) : null}
                           {job.status === "pending" ? (
                             <IconButton
-                              label={isReadyToGenerate ? "Generar EPUB" : "Iniciar"}
+                              label={isReadyToGenerate ? t("queue.generate") : t("queue.start")}
                               className="btn btn-primary btn-square btn-sm"
                               onClick={() => void handleStartQueued(job.id)}
                             >
@@ -284,7 +286,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                             </IconButton>
                           ) : null}
                           {job.status === "done" && job.downloadUrl ? (
-                            <a className="btn btn-success btn-square btn-sm" href={job.downloadUrl} target="folio-download" aria-label="Descargar" title="Descargar">
+                            <a className="btn btn-success btn-square btn-sm" href={job.downloadUrl} target="folio-download" aria-label={t("common.download")} title={t("common.download")}>
                               <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <ActionIcon type="download" />
                               </svg>
@@ -292,7 +294,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
                           ) : null}
                           {job.status !== "processing" && job.status !== "pausing" ? (
                             <IconButton
-                              label="Borrar"
+                              label={t("queue.delete")}
                               className="btn btn-error btn-outline btn-square btn-sm"
                               onClick={() => void handleDelete(job)}
                             >
@@ -307,7 +309,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
               ) : (
                 <tr>
                   <td colSpan={3} className="empty-table-cell">
-                    La cola está vacía. Selecciona un archivo para crear el primer trabajo.
+                    {t("queue.empty")}
                   </td>
                 </tr>
               )}
@@ -322,7 +324,7 @@ export function JobsTable({ jobs, onRefresh, enableMetadataEditor = false }: Job
           onClick={() => void handleClearCompleted()}
         >
           {isClearingCompleted ? <span className="loading loading-spinner loading-xs" /> : null}
-          Borrar completados
+          {t("queue.clearCompleted")}
         </button>
       </div>
     </div>

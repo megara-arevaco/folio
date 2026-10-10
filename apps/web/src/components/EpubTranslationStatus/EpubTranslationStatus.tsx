@@ -1,4 +1,5 @@
 import type { TranslationJobProgress, TranslationJobStatus } from "../../services/translation";
+import { useTranslation } from "react-i18next";
 
 type Props = {
   phase: TranslationJobStatus | "idle" | "uploading";
@@ -63,6 +64,7 @@ export function EpubTranslationStatus({
   error,
   mode = "translation",
 }: Props) {
+  const { t } = useTranslation();
   const progressValue = getProgressValue(phase, progress);
   const isConversion = mode === "conversion";
 
@@ -72,7 +74,7 @@ export function EpubTranslationStatus({
     return (
       <div className="status-strip flex items-center gap-3 text-sm text-base-content/70">
         <span className="inline-block h-2.5 w-2.5 rounded-full bg-base-300" />
-        Selecciona un PDF y pulsa convertir.
+        {t("status.selectConvert")}
       </div>
     );
   }
@@ -80,7 +82,7 @@ export function EpubTranslationStatus({
   if (phase === "error") {
     return (
       <div className="alert alert-error">
-        <span>{error ?? "Ha ocurrido un error"}</span>
+        <span>{error ?? t("status.genericError")}</span>
       </div>
     );
   }
@@ -91,14 +93,14 @@ export function EpubTranslationStatus({
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="font-medium text-warning-content">
-              {isConversion ? "Conversión pausada" : "Traducción pausada"}
+              {isConversion ? t("status.pausedConversion") : t("status.pausedTranslation")}
             </p>
             <p className="text-sm text-base-content/70">
-              {progress?.message ?? "Puedes reanudarla cuando quieras."}
+              {progress?.message ?? t("status.resumeFromQueue")}
             </p>
           </div>
           <span className="text-sm font-medium text-warning">
-            {progressValue !== null ? `${progressValue}%` : "Pausada"}
+            {progressValue !== null ? `${progressValue}%` : t("status.paused")}
           </span>
         </div>
         {progressValue !== null ? (
@@ -120,9 +122,8 @@ export function EpubTranslationStatus({
             </span>
             <div>
               <p className="font-medium text-success-content">
-                {isConversion ? "Conversión completada" : "Traducción completada"}
+                {isConversion ? t("status.completedConversion") : t("status.completedTranslation")}
               </p>
-              <p className="text-sm text-base-content/70">El EPUB ya está listo para descargar.</p>
             </div>
           </div>
           <span className="text-sm font-medium text-success">{progressValue}%</span>
@@ -131,7 +132,7 @@ export function EpubTranslationStatus({
         <div className="flex justify-end">
           <a className="btn btn-success" href={downloadUrl} target="folio-download">
             <DownloadIcon />
-            Descargar
+            {t("status.download")}
           </a>
         </div>
       </div>
@@ -146,11 +147,11 @@ export function EpubTranslationStatus({
           <div>
             <p className="font-medium">
               {phase === "uploading"
-                ? isConversion ? "Subiendo PDF" : "Subiendo EPUB"
-                : isConversion ? "Convirtiendo PDF" : "Traduciendo EPUB"}
+                ? isConversion ? t("status.uploadingPdf") : t("status.uploadingEpub")
+                : isConversion ? t("status.convertingPdf") : t("status.translatingEpub")}
             </p>
             <p className="text-sm text-base-content/70">
-              {progress?.message ?? "Preparando trabajo..."}
+              {progress?.message ?? t("status.preparing")}
             </p>
           </div>
         </div>
@@ -158,8 +159,8 @@ export function EpubTranslationStatus({
           {progressValue !== null
             ? `${progressValue}%`
             : phase === "uploading"
-              ? "Subiendo"
-              : "Procesando"}
+              ? t("status.uploading")
+              : t("status.processing")}
         </span>
       </div>
       {progressValue !== null ? (

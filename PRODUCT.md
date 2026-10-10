@@ -1,9 +1,5 @@
 # Product
 
-## Register
-
-product
-
 ## Platform
 
 Aplicación web personal: React en el navegador y API Fastify en el servidor.

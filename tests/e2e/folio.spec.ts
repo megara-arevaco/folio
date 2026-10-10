@@ -125,7 +125,7 @@ test("guarda lecturas, permite editarlas y borrarlas desde la interfaz", async (
   await page.getByRole("button", { name: "Editar lectura de Lectura de Folio" }).click();
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Borrar", exact: true }).click();
-  await expect(page.getByText("Todavía no has registrado ninguna lectura.")).toBeVisible();
+  await expect(page.getByText("Sin lecturas registradas.", { exact: true })).toBeVisible();
 });
 
 test("rechaza archivos incompatibles y peticiones de otros orígenes", async ({ page }) => {

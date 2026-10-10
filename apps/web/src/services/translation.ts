@@ -1,4 +1,5 @@
 import type { PublicJob as TranslationJob, EpubMetadata, EditableDocumentMetadata } from "../../../../packages/contracts/src";
+import i18n from "../i18n";
 export type { JobStatus as TranslationJobStatus, JobKind as TranslationJobKind, JobProgress as TranslationJobProgress, PublicJob as TranslationJob, EpubMetadata, EditableDocumentFormat, EditableDocumentMetadata } from "../../../../packages/contracts/src";
 import { API_BASE_URL, readApiData, readErrorMessage } from "./http";
 
@@ -88,7 +89,7 @@ export async function openWritableLocalDocument(): Promise<{ file: File; fileId:
   if (!response.ok) throw new Error(await readErrorMessage(response));
   const fileId = response.headers.get("x-local-file-id");
   const fileName = decodeURIComponent(response.headers.get("x-file-name") ?? "book.epub");
-  if (!fileId) throw new Error("No se ha recibido permiso para editar el archivo");
+  if (!fileId) throw new Error(i18n.t("metadata.permissionError"));
   const type = fileName.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/epub+zip";
   return { fileId, file: new File([await response.blob()], fileName, { type }) };
 }

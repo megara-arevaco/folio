@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { createPortal } from "react-dom";
 import {
   addReadingBook,
@@ -9,13 +11,6 @@ import {
   type BookCandidate,
   type ReadingBook,
 } from "../services/readingLog";
-
-const labels: Record<ReadingBook["status"], string> = {
-  "to-read": "Pendiente",
-  reading: "Leyendo",
-  read: "Leído",
-  abandoned: "Abandonado",
-};
 
 const commonCategories = [
   "Ficción",
@@ -38,18 +33,43 @@ const commonCategories = [
   "Clásicos",
 ] as const;
 
+const categoryTranslationKeys: Record<string, string> = {
+  Ficción: "categories.fiction",
+  "No ficción": "categories.nonfiction",
+  Fantasía: "categories.fantasy",
+  "Ciencia ficción": "categories.scienceFiction",
+  Terror: "categories.horror",
+  Misterio: "categories.mystery",
+  Thriller: "categories.thriller",
+  Romance: "categories.romance",
+  "Novela histórica": "categories.historicalNovel",
+  Aventura: "categories.adventure",
+  Biografía: "categories.biography",
+  Ensayo: "categories.essay",
+  Filosofía: "categories.philosophy",
+  Historia: "categories.history",
+  Política: "categories.politics",
+  Ciencia: "categories.science",
+  Poesía: "categories.poetry",
+  Clásicos: "categories.classics",
+};
+
+const displayCategory = (category: string, t: TFunction) => {
+  const key = categoryTranslationKeys[category];
+  return key ? t(key) : category;
+};
+
 type PopoverPosition = {
   left: number;
   top?: number;
   bottom?: number;
 };
 
-const monthNameFormatter = new Intl.DateTimeFormat("es-ES", {
-  month: "long",
-  timeZone: "UTC",
-});
-
-function groupBooksByReadingMonth(books: ReadingBook[]) {
+function groupBooksByReadingMonth(books: ReadingBook[], locale: string, t: TFunction) {
+  const monthNameFormatter = new Intl.DateTimeFormat(locale, {
+    month: "long",
+    timeZone: "UTC",
+  });
   const grouped = new Map<string, ReadingBook[]>();
 
   for (const book of books) {
@@ -64,7 +84,7 @@ function groupBooksByReadingMonth(books: ReadingBook[]) {
       return firstKey.localeCompare(secondKey);
     })
     .map(([key, groupedBooks]) => {
-      if (key === "undated") return { key, label: "Sin fecha de lectura", books: groupedBooks };
+      if (key === "undated") return { key, label: t("reading.undated"), books: groupedBooks };
 
       const [year, month] = key.split("-").map(Number);
       const monthName = monthNameFormatter.format(new Date(Date.UTC(year, month - 1, 1)));
@@ -90,6 +110,14 @@ function CategoryIcon({ type }: { type: "add" | "remove" }) {
 }
 
 export function ReadingLogPage() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage === "en" ? "en-US" : "es-ES";
+  const labels: Record<ReadingBook["status"], string> = {
+    "to-read": t("reading.statusToRead"),
+    reading: t("reading.statusReading"),
+    read: t("reading.statusRead"),
+    abandoned: t("reading.statusAbandoned"),
+  };
   const [books, setBooks] = useState<ReadingBook[]>([]);
   const [results, setResults] = useState<BookCandidate[]>([]);
   const [query, setQuery] = useState("");
@@ -105,7 +133,7 @@ export function ReadingLogPage() {
   const refresh = async () => setBooks(await fetchReadingLog());
 
   useEffect(() => {
-    void refresh().catch(() => setError("No se ha podido cargar el registro"));
+    void refresh().catch(() => setError(t("reading.unknownError")));
   }, []);
 
   useEffect(() => {
@@ -136,7 +164,7 @@ export function ReadingLogPage() {
     try {
       setResults(await searchBooks(query));
     } catch {
-      setError("No se han podido consultar los catálogos de libros");
+      setError(t("reading.searchError"));
     } finally {
       setLoading(false);
     }
@@ -154,12 +182,12 @@ export function ReadingLogPage() {
     setError(null);
     try {
       const uniqueCategories = Array.from(
-        new Map(categories.map((category) => [category.toLocaleLowerCase("es"), category])).values(),
+        new Map(categories.map((category) => [category.toLocaleLowerCase(locale), category])).values(),
       );
       await updateReadingBook(book.id, { categories: uniqueCategories });
       await refresh();
     } catch {
-      setError("No se han podido actualizar las categorías");
+      setError(t("reading.categoriesError"));
     } finally {
       setUpdatingCategoriesBookId(null);
     }
@@ -168,51 +196,50 @@ export function ReadingLogPage() {
   return (
     <main className="workspace-page">
       <header className="workspace-intro">
-        <h1 className="workspace-title">Lecturas</h1>
+        <h1 className="workspace-title">{t("reading.title")}</h1>
       </header>
 
       <section className="workbench-surface workbench-section">
         <div className="mb-4">
-          <h2 className="section-title">Añadir un libro</h2>
-          <p className="section-copy">Consulta Open Library y Google Books por ISBN, título o autor.</p>
+          <h2 className="section-title">{t("reading.addBook")}</h2>
         </div>
         <form className="reading-search" onSubmit={search}>
           <label className="field-label grow">
-            <span>Libro</span>
-            <input className="input input-bordered w-full" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="El nombre de la rosa, Umberto Eco…" required />
+            <span>{t("reading.book")}</span>
+            <input className="input input-bordered w-full" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("reading.searchPlaceholder")} required />
           </label>
           <button className="btn btn-primary self-end" disabled={loading}>
-            {loading ? <span className="loading loading-spinner loading-sm" /> : null}Buscar
+            {loading ? <span className="loading loading-spinner loading-sm" /> : null}{t("reading.search")}
           </button>
         </form>
 
         {error ? <div className="alert alert-error"><span>{error}</span></div> : null}
 
         {hasSearched && !loading && !error ? (
-          <section className="reading-results-wrap" aria-live="polite" aria-label="Resultados de búsqueda">
+          <section className="reading-results-wrap" aria-live="polite" aria-label={t("reading.resultsLabel")}>
             <div className="reading-results__header">
-              <h3>Resultados</h3>
-              <span>{results.length} {results.length === 1 ? "libro" : "libros"}</span>
+              <h3>{t("reading.results")}</h3>
+              <span>{t("reading.resultCount", { count: results.length })}</span>
             </div>
             {results.length ? (
               <div className="reading-results">
                 {results.map((book, index) => (
                   <article key={`${book.openLibraryKey}-${index}`} className="book-result">
-                    {book.coverUrl ? <img className="reading-cover" src={book.coverUrl} alt={`Portada de ${book.title}`} /> : <div className="reading-cover bg-base-200" />}
+                    {book.coverUrl ? <img className="reading-cover" src={book.coverUrl} alt={t("reading.coverAlt", { title: book.title })} /> : <div className="reading-cover bg-base-200" />}
                     <div className="min-w-0 grow">
                       <p className="font-medium">{book.title}</p>
-                      <p className="text-sm text-base-content/60">{book.authors.join(", ") || "Autor desconocido"}</p>
-                      <p className="operational-meta text-base-content/60">{book.firstPublishYear ?? "Año desconocido"}</p>
+                      <p className="text-sm text-base-content/60">{book.authors.join(", ") || t("reading.unknownAuthor")}</p>
+                      <p className="operational-meta text-base-content/60">{book.firstPublishYear ?? t("reading.unknownYear")}</p>
                       <div className="mt-2 flex flex-wrap gap-1">
-                        {book.categories.slice(0, 3).map((category) => <span key={category} className="badge badge-ghost badge-xs">{category}</span>)}
+                        {book.categories.slice(0, 3).map((category) => <span key={category} className="badge badge-ghost badge-xs">{displayCategory(category, t)}</span>)}
                       </div>
                     </div>
-                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void add(book)}>Añadir</button>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void add(book)}>{t("reading.add")}</button>
                   </article>
                 ))}
               </div>
             ) : (
-              <p className="reading-results__empty">No se han encontrado libros. Prueba con otro título, autor o ISBN.</p>
+              <p className="reading-results__empty">{t("reading.noResults")}</p>
             )}
           </section>
         ) : null}
@@ -220,11 +247,11 @@ export function ReadingLogPage() {
 
       <section className="mt-6">
         <div className="mb-4">
-          <h2 className="section-title">Archivo de lectura</h2>
-          <p className="section-copy">{books.length ? `${books.length} ${books.length === 1 ? "libro registrado" : "libros registrados"}.` : "Tu registro aparecerá aquí."}</p>
+          <h2 className="section-title">{t("reading.archive")}</h2>
+          {books.length > 0 ? <p className="section-copy">{t("reading.resultCount", { count: books.length })}</p> : null}
         </div>
         <div className="reading-groups">
-          {groupBooksByReadingMonth(books).map((group) => (
+          {groupBooksByReadingMonth(books, locale, t).map((group) => (
             <section key={group.key} className="reading-group">
               <h3 className="reading-group__heading">{group.label}</h3>
               <div className="reading-list">
@@ -232,7 +259,7 @@ export function ReadingLogPage() {
                 const isPickerOpen = categoryPickerBookId === book.id;
                 const isUpdatingCategories = updatingCategoriesBookId === book.id;
                 const availableCategories = commonCategories.filter(
-                  (category) => !book.categories.some((saved) => saved.localeCompare(category, "es", { sensitivity: "base" }) === 0),
+                  (category) => !book.categories.some((saved) => saved.localeCompare(category, locale, { sensitivity: "base" }) === 0),
                 );
 
                 return (
@@ -243,7 +270,7 @@ export function ReadingLogPage() {
                 <button
                   type="button"
                   className="reading-book__cover-trigger"
-                  aria-label={`Editar lectura de ${book.title}`}
+                  aria-label={t("reading.editBook", { title: book.title })}
                   aria-haspopup="dialog"
                   aria-expanded={editingBookId === book.id}
                   onClick={(event) => {
@@ -257,12 +284,12 @@ export function ReadingLogPage() {
                     setEditingBookId(book.id);
                   }}
                 >
-                  {book.coverUrl ? <img className="reading-cover" src={book.coverUrl} alt={`Portada de ${book.title}`} /> : <span className="reading-cover bg-base-200" />}
+                  {book.coverUrl ? <img className="reading-cover" src={book.coverUrl} alt={t("reading.coverAlt", { title: book.title })} /> : <span className="reading-cover bg-base-200" />}
                 </button>
                 <div className="reading-book__body">
                   <div className="reading-book__summary">
                     <h2 className="reading-book__title">{book.title}</h2>
-                    <p className="reading-book__author">{book.authors.join(", ") || "Autor desconocido"}</p>
+                    <p className="reading-book__author">{book.authors.join(", ") || t("reading.unknownAuthor")}</p>
                     <span className="reading-book__status">{labels[book.status]}</span>
                   </div>
 
@@ -278,22 +305,22 @@ export function ReadingLogPage() {
                       >
                         <header className="reading-edit-popover__header">
                           <div className="min-w-0">
-                            <p className="reading-edit-popover__eyebrow">Editar lectura</p>
+                            <p className="reading-edit-popover__eyebrow">{t("reading.edit")}</p>
                             <h3 id={`edit-reading-${book.id}`}>{book.title}</h3>
                           </div>
-                          <button type="button" className="btn btn-ghost btn-circle btn-xs" aria-label="Cerrar edición" onClick={closeEditor}>×</button>
+                          <button type="button" className="btn btn-ghost btn-circle btn-xs" aria-label={t("reading.closeEdit")} onClick={closeEditor}>×</button>
                         </header>
 
                         <div className="reading-book__editor">
                           <div className="reading-book__categories">
                             {book.categories.map((category) => (
                               <span key={category} className="badge badge-primary badge-outline reading-book__category gap-1 pr-1">
-                                {category}
+                                {displayCategory(category, t)}
                                 <button
                                   type="button"
                                   className="grid h-4 w-4 place-items-center rounded-full hover:bg-primary hover:text-primary-content disabled:opacity-50"
-                                  aria-label={`Quitar categoría ${category}`}
-                                  title={`Quitar ${category}`}
+                                  aria-label={t("reading.removeCategory", { category: displayCategory(category, t) })}
+                                  title={t("reading.removeCategoryTitle", { category: displayCategory(category, t) })}
                                   disabled={isUpdatingCategories}
                                   onClick={() => void saveCategories(book, book.categories.filter((saved) => saved !== category))}
                                 >
@@ -305,8 +332,8 @@ export function ReadingLogPage() {
                             <button
                               type="button"
                               className="btn btn-primary btn-outline btn-circle btn-xs reading-book__category-add"
-                              aria-label="Añadir categoría"
-                              title="Añadir categoría"
+                              aria-label={t("reading.addCategory")}
+                              title={t("reading.addCategory")}
                               aria-expanded={isPickerOpen}
                               onClick={(event) => {
                                 if (isPickerOpen) {
@@ -332,12 +359,12 @@ export function ReadingLogPage() {
                                   className="popover-panel fixed"
                                   style={categoryPickerPosition}
                                   role="dialog"
-                                  aria-label="Seleccionar categoría"
+                                  aria-label={t("reading.selectCategory")}
                                   onClick={(event) => event.stopPropagation()}
                                 >
                                   <div className="mb-2 flex items-center justify-between gap-2">
-                                    <p className="text-sm font-medium">Añadir categoría</p>
-                                    <button type="button" className="btn btn-ghost btn-circle btn-xs" aria-label="Cerrar" onClick={() => setCategoryPickerBookId(null)}>×</button>
+                                    <p className="text-sm font-medium">{t("reading.addCategory")}</p>
+                                    <button type="button" className="btn btn-ghost btn-circle btn-xs" aria-label={t("reading.close")} onClick={() => setCategoryPickerBookId(null)}>×</button>
                                   </div>
                                   {availableCategories.length ? (
                                     <div className="flex max-h-52 flex-wrap gap-1.5 overflow-y-auto">
@@ -349,11 +376,11 @@ export function ReadingLogPage() {
                                           disabled={isUpdatingCategories}
                                           onClick={() => void saveCategories(book, [...book.categories, category])}
                                         >
-                                          {category}
+                                          {displayCategory(category, t)}
                                         </button>
                                       ))}
                                     </div>
-                                  ) : <p className="text-xs text-base-content/60">Ya has añadido todas las categorías habituales.</p>}
+                                  ) : <p className="text-xs text-base-content/60">{t("reading.allCategoriesAdded")}</p>}
                                 </div>
                               </div>,
                               document.body,
@@ -362,7 +389,7 @@ export function ReadingLogPage() {
 
                           <div className="reading-edit-popover__fields">
                             <label className="field-label reading-book__compact-field">
-                              <span>Estado</span>
+                              <span>{t("reading.status")}</span>
                               <select
                                 className="select select-bordered select-sm reading-book__compact-control"
                                 value={book.status}
@@ -376,7 +403,7 @@ export function ReadingLogPage() {
                             </label>
 
                             <label className="field-label reading-book__compact-field">
-                              <span>Mes y año</span>
+                              <span>{t("reading.monthYear")}</span>
                               <input
                                 type="month"
                                 className="input input-bordered input-sm reading-book__compact-control"
@@ -393,14 +420,14 @@ export function ReadingLogPage() {
                             type="button"
                             className="btn btn-error btn-ghost btn-sm"
                             onClick={async () => {
-                              if (confirm(`¿Borrar «${book.title}»?`)) {
+                              if (confirm(t("reading.deleteConfirm", { title: book.title }))) {
                                 closeEditor();
                                 await deleteReadingBook(book.id);
                                 await refresh();
                               }
                             }}
                           >
-                            Borrar
+                            {t("reading.delete")}
                           </button>
                         </div>
                       </section>
@@ -416,7 +443,7 @@ export function ReadingLogPage() {
           ))}
         </div>
 
-        {!books.length ? <div className="workbench-surface py-12 text-center text-sm text-base-content/60">Todavía no has registrado ninguna lectura.</div> : null}
+        {!books.length ? <div className="workbench-surface py-12 text-center text-sm text-base-content/60">{t("reading.noBooks")}</div> : null}
       </section>
     </main>
   );

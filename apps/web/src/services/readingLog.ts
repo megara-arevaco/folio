@@ -1,4 +1,5 @@
 import type { BookCandidate, ReadingBook, ReadingBookChanges } from "../../../../packages/contracts/src";
+import i18n from "../i18n";
 export type { BookCandidate, ReadingBook } from "../../../../packages/contracts/src";
 import { API_BASE_URL, readApiData, readErrorMessage } from "./http";
 
@@ -28,5 +29,5 @@ export async function updateReadingBook(id: string, changes: ReadingBookChanges)
 
 export async function deleteReadingBook(id: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/reading-log/${encodeURIComponent(id)}`, { method: "DELETE" });
-  if (!response.ok) throw new Error(await readErrorMessage(response, "No se ha podido borrar el libro"));
+  if (!response.ok) throw new Error(await readErrorMessage(response, i18n.t("reading.deleteError")));
 }

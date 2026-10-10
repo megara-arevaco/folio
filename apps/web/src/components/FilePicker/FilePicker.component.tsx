@@ -1,5 +1,6 @@
 import { useFilePicker } from "./hook/useFilePicker";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 type FilePickerActionContext = {
   file: File | null;
@@ -23,10 +24,13 @@ export function FilePicker({
   disabled,
   accept = ".epub",
   allowedExtensions = [".epub"],
-  emptyLabel = "Arrastra un archivo .epub o haz clic para seleccionar",
-  invalidFileMessage = "Solo se permiten archivos .epub",
+  emptyLabel,
+  invalidFileMessage,
   actions,
 }: FilePickerProps) {
+  const { t } = useTranslation();
+  const pickerEmptyLabel = emptyLabel ?? t("queue.selectEpub");
+  const pickerInvalidFileMessage = invalidFileMessage ?? t("queue.onlyEpub");
   const {
     file,
     isDragging,
@@ -38,7 +42,7 @@ export function FilePicker({
     handleDragLeave,
     handleDrop,
     handleRemove,
-  } = useFilePicker({ onFileSelected, disabled, allowedExtensions, invalidFileMessage });
+  } = useFilePicker({ onFileSelected, disabled, allowedExtensions, invalidFileMessage: pickerInvalidFileMessage });
 
   const clearSelectedFile = () => {
     onFileCleared?.();
@@ -116,14 +120,13 @@ export function FilePicker({
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
             <span className="file-dropzone__title">
-              {emptyLabel}
+              {pickerEmptyLabel}
             </span>
-            <span className="file-dropzone__meta">EPUB o PDF · un archivo por trabajo</span>
           </>
         )}
       </div>
 
-      {error && <p className="text-sm text-error">{error}. Selecciona un archivo compatible.</p>}
+      {error && <p className="text-sm text-error">{error}.</p>}
 
       {file || renderedActions ? (
         <div className="file-picker__actions">
@@ -138,7 +141,7 @@ export function FilePicker({
                 clearSelectedFile();
               }}
             >
-              Quitar archivo
+              {t("file.remove")}
             </button>
           ) : null}
         </div>

@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import i18n from "./i18n";
+import { LanguageSelector } from "./components/LanguageSelector";
 import { Navigate, NavLink, Route, Routes } from "react-router";
 import { FilePicker } from "./components/FilePicker/FilePicker.component";
 import { EpubTranslationStatus } from "./components/EpubTranslationStatus";
@@ -60,7 +63,7 @@ function useConfirmBeforePageExit() {
 
     const confirmExit = (event: BeforeUnloadEvent) => {
       if (!hasUnfinishedJobs.current) return;
-      const message = "Algunos jobs todavía no han acabado. ¿Quieres salir igualmente?";
+      const message = i18n.t("queue.exitWarning");
       event.preventDefault();
       event.returnValue = message;
       return message;
@@ -180,6 +183,7 @@ function ConversionSection({
   statusMode = "translation",
   showStatus = true,
 }: ConversionSectionProps) {
+  const { t } = useTranslation();
   const activeFileName = file?.name ?? inputFileName;
   const canStart = Boolean(file) && !isUploading;
   const viewStatus = (!activeFileName || phase === "pending" ? "idle" : phase) as
@@ -200,7 +204,7 @@ function ConversionSection({
       </header>
 
       <div className="conversion-layout">
-        <section className="conversion-intake workbench-surface workbench-section" aria-label="Añadir archivo">
+        <section className="conversion-intake workbench-surface workbench-section" aria-label={t("queue.addFile")}>
           <FilePicker
             onFileSelected={onFileSelected}
             onFileCleared={onFileCleared}
@@ -220,7 +224,7 @@ function ConversionSection({
                 }}
                 disabled={!canStart}
               >
-                {isUploading ? "Subiendo…" : isBusy ? "Añadir a la cola" : primaryAction}
+                {isUploading ? t("queue.uploading") : isBusy ? t("queue.addToQueue") : primaryAction}
               </button>
             )}
           />
@@ -242,13 +246,11 @@ function ConversionSection({
           <div className="workbench-toolbar mb-4">
             <div>
               <h2 className="section-title" id={`${statusMode}-queue-title`}>
-                {statusMode === "conversion" ? "Cola de conversión" : "Cola de traducción"}
+                {statusMode === "conversion" ? t("queue.conversion") : t("queue.translation")}
               </h2>
-              <p className="section-copy">
-                {queueJobs.length === 0
-                  ? "Los trabajos que añadas aparecerán aquí."
-                  : `${queueJobs.length} ${queueJobs.length === 1 ? "trabajo" : "trabajos"} en esta cola.`}
-              </p>
+              {queueJobs.length > 0 ? <p className="section-copy">
+                {t("queue.job", { count: queueJobs.length })}
+              </p> : null}
             </div>
           </div>
           {jobsContent}
@@ -259,6 +261,7 @@ function ConversionSection({
 }
 
 function TranslationsWorkspace() {
+  const { t } = useTranslation();
   const {
     activeJobId,
     file,
@@ -280,8 +283,8 @@ function TranslationsWorkspace() {
       <section>
         <ConversionSection
           badge=""
-          title="Traducir EPUB"
-          primaryAction="Traducir EPUB"
+          title={t("queue.epubTitle")}
+          primaryAction={t("queue.epubTitle")}
           file={file}
           inputFileName={inputFileName}
           progress={progress}
@@ -299,8 +302,8 @@ function TranslationsWorkspace() {
           }}
           accept=".epub"
           allowedExtensions={[".epub"]}
-          emptyLabel="Selecciona o arrastra un archivo .epub"
-          invalidFileMessage="Solo se permiten archivos .epub"
+          emptyLabel={t("queue.selectEpub")}
+          invalidFileMessage={t("queue.onlyEpub")}
           queueJobs={epubQueue.jobs}
           jobsContent={<JobsTable jobs={epubQueue.jobs} onRefresh={epubQueue.refresh} enableMetadataEditor />}
         />
@@ -310,6 +313,7 @@ function TranslationsWorkspace() {
 }
 
 function FormatWorkspace() {
+  const { t } = useTranslation();
   const pdfConversion = usePdfConversion();
   const pdfQueue = useJobQueue("pdf-conversion");
 
@@ -318,8 +322,8 @@ function FormatWorkspace() {
       <section>
         <ConversionSection
           badge=""
-          title="Convertir PDF"
-          primaryAction="Convertir PDF"
+          title={t("queue.pdfTitle")}
+          primaryAction={t("queue.pdfTitle")}
           file={pdfConversion.file}
           inputFileName={pdfConversion.inputFileName}
           progress={pdfConversion.progress}
@@ -337,8 +341,8 @@ function FormatWorkspace() {
           }}
           accept=".pdf"
           allowedExtensions={[".pdf"]}
-          emptyLabel="Selecciona o arrastra un archivo .pdf"
-          invalidFileMessage="Solo se permiten archivos .pdf"
+          emptyLabel={t("queue.selectPdf")}
+          invalidFileMessage={t("queue.onlyPdf")}
           queueJobs={pdfQueue.jobs}
           jobsContent={<JobsTable jobs={pdfQueue.jobs} onRefresh={pdfQueue.refresh} />}
           statusMode="conversion"
@@ -368,6 +372,7 @@ function NavigationIcon({ type }: { type: "translate" | "convert" | "metadata" |
 }
 
 function TopNavigation() {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
   const closeMenu = () => setIsOpen(false);
@@ -377,41 +382,42 @@ function TopNavigation() {
       <div className="app-header__inner">
         <NavLink className="app-brand" to="/translations" aria-label="Folio" onClick={closeMenu}>
           <img className="app-brand__mark" src="/icon.svg" alt="" />
-          <span className="app-brand__name">Folio <strong>/ tu taller de libros</strong></span>
+          <span className="app-brand__name">Folio <strong>/ {t("nav.brand")}</strong></span>
         </NavLink>
         <button
           type="button"
           className="app-menu-button"
-          aria-label={isOpen ? "Cerrar navegación" : "Abrir navegación"}
+          aria-label={isOpen ? t("nav.close") : t("nav.open")}
           aria-expanded={isOpen}
           aria-controls="primary-navigation"
           onClick={() => setIsOpen((open) => !open)}
         >
           <span /><span />
         </button>
-        <nav id="primary-navigation" className={`app-nav ${isOpen ? "is-open" : ""}`} aria-label="Secciones principales">
+        <nav id="primary-navigation" className={`app-nav ${isOpen ? "is-open" : ""}`} aria-label={t("nav.sections")}>
           <div className="app-nav__group">
             <NavLink to="/translations" className="app-nav__link" onClick={closeMenu}>
               <NavigationIcon type="translate" />
-              Traducir EPUB
+              {t("nav.translations")}
             </NavLink>
             <NavLink to="/format" className="app-nav__link" onClick={closeMenu}>
               <NavigationIcon type="convert" />
-              Convertir PDF
+              {t("nav.conversion")}
             </NavLink>
             <NavLink to="/metadata" className="app-nav__link" onClick={closeMenu}>
               <NavigationIcon type="metadata" />
-              Metadatos
+              {t("nav.metadata")}
             </NavLink>
             <NavLink to="/device" className="app-nav__link" onClick={closeMenu}>
               <NavigationIcon type="device" />
-              Dispositivo
+              {t("nav.device")}
             </NavLink>
             <NavLink to="/reading-log" className="app-nav__link" onClick={closeMenu}>
               <NavigationIcon type="reading" />
-              Lecturas
+              {t("nav.reading")}
             </NavLink>
           </div>
+          <LanguageSelector />
         </nav>
       </div>
     </header>
@@ -419,12 +425,13 @@ function TopNavigation() {
 }
 
 export function App() {
+  const { t } = useTranslation();
   useConfirmBeforePageExit();
 
   return (
     <div className="app-shell" data-theme="kinpaku">
       <TopNavigation />
-      <iframe className="hidden" name="folio-download" title="Descargas" />
+      <iframe className="hidden" name="folio-download" title={t("nav.downloads")} />
       <Routes>
         <Route path="/translations" element={<TranslationsWorkspace />} />
         <Route path="/format" element={<FormatWorkspace />} />

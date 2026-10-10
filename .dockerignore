@@ -8,5 +8,14 @@ apps/web/dist
 data
 tmp
 output
+backups
 playwright-report
 test-results
+docs
+systemd
+tests
+.github
+.cache
+.tmp-*
+*.log
+*.sqlite*

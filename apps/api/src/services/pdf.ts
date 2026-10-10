@@ -533,7 +533,12 @@ async function processLocalPdfToEpub(
           resolve(process.env.TESSDATA_PREFIX ?? process.cwd()),
         );
         const workerOptions = {
-          ...(selectedOcrLanguage.langPath ? { langPath: selectedOcrLanguage.langPath } : {}),
+          ...(selectedOcrLanguage.langPath ? {
+            langPath: selectedOcrLanguage.langPath,
+            // Read bundled .traineddata directly without writing to the app directory.
+            cachePath: selectedOcrLanguage.langPath,
+            cacheMethod: "readOnly" as const,
+          } : {}),
           logger: ({ status, progress }: { status: string; progress: number }) => {
             onProgress?.(getPdfProgress(pageIndex, pdfDocument.numPages, `OCR pagina ${pageIndex + 1}: ${status} ${Math.round(progress * 100)}%`));
           },

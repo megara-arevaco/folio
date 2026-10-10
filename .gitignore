@@ -17,6 +17,7 @@ coverage/
 tmp/
 data/
 output/
+backups/
 .cache/
 *.sqlite
 *.sqlite-journal

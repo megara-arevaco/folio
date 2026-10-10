@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useTranslation } from "react-i18next";
 import { fetchDeviceBook, replaceDeviceBook } from "../services/devices";
 import {
   fetchEpubMetadata,
@@ -25,6 +26,7 @@ type FilePickerWindow = Window & {
 };
 
 export function MetadataEditorPage() {
+  const { t } = useTranslation();
   const { jobId } = useParams<{ jobId: string }>();
   const [searchParams] = useSearchParams();
   const deviceId = searchParams.get("deviceId");
@@ -61,7 +63,7 @@ export function MetadataEditorPage() {
         setCoverPreview(`${getEpubCoverUrl(jobId)}?v=${Date.now()}`);
         setNotice(null);
       })
-      .catch((loadError) => !cancelled && setError(loadError instanceof Error ? loadError.message : "No se han podido leer los metadatos"))
+      .catch((loadError) => !cancelled && setError(loadError instanceof Error ? loadError.message : t("metadata.loadingMetadataError")))
       .finally(() => !cancelled && setIsLoading(false));
     return () => { cancelled = true; };
   }, [jobId]);
@@ -73,14 +75,14 @@ export function MetadataEditorPage() {
     setIsLoading(true);
     void fetchDeviceBook(deviceId, devicePath, deviceFileName)
       .then((loadedFile) => { if (!cancelled) return loadFile(loadedFile); })
-      .catch((loadError) => !cancelled && setError(loadError instanceof Error ? loadError.message : "No se ha podido leer el libro del dispositivo"))
+      .catch((loadError) => !cancelled && setError(loadError instanceof Error ? loadError.message : t("metadata.deviceReadError")))
       .finally(() => !cancelled && setIsLoading(false));
     return () => { cancelled = true; };
   }, [deviceId, devicePath, deviceFileName]);
 
   async function loadFile(selectedFile: File) {
     if (!/\.(epub|pdf)$/i.test(selectedFile.name)) {
-      setError("Solo se permiten archivos EPUB o PDF");
+      setError(t("metadata.onlyEpubPdf"));
       return;
     }
     setFile(selectedFile);
@@ -97,7 +99,7 @@ export function MetadataEditorPage() {
       setCoverFile(null);
       setCoverPreview(coverDataUrl);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "No se han podido leer los metadatos");
+      setError(loadError instanceof Error ? loadError.message : t("metadata.loadingMetadataError"));
     } finally {
       setIsLoading(false);
     }
@@ -114,7 +116,7 @@ export function MetadataEditorPage() {
         multiple: false,
         excludeAcceptAllOption: true,
         types: [{
-          description: "Libros EPUB o PDF",
+          description: t("metadata.epubPdfPicker"),
           accept: {
             "application/epub+zip": [".epub"],
             "application/pdf": [".pdf"],
@@ -127,7 +129,7 @@ export function MetadataEditorPage() {
       await loadFile(selectedFile);
     } catch (pickerError) {
       if (pickerError instanceof DOMException && pickerError.name === "AbortError") return;
-      setError(pickerError instanceof Error ? pickerError.message : "No se ha podido abrir el archivo");
+      setError(pickerError instanceof Error ? pickerError.message : t("file.openError"));
     }
   }
 
@@ -146,14 +148,14 @@ export function MetadataEditorPage() {
           setCoverFile(null);
         }
         setFileName(await renameJobEpub(jobId, fileName));
-        setNotice("Metadatos guardados en el EPUB procesado.");
+        setNotice(t("metadata.savedProcessed"));
       } else if (file) {
         const blob = await updateLocalDocumentMetadata(file, values, documentFormat === "epub" ? coverFile : null);
         const mimeType = documentFormat === "pdf" ? "application/pdf" : "application/epub+zip";
         if (isDeviceBook && deviceId && devicePath && deviceFileName) {
           await replaceDeviceBook(deviceId, devicePath, blob, deviceFileName);
           setFile(new File([blob], deviceFileName, { type: mimeType }));
-          setNotice("Metadatos guardados. El archivo original del dispositivo se ha sobrescrito.");
+          setNotice(t("metadata.savedDevice"));
         } else if (fileHandle) {
           const writable = await fileHandle.createWritable();
           try {
@@ -166,7 +168,7 @@ export function MetadataEditorPage() {
           const savedFile = await fileHandle.getFile();
           setFile(savedFile);
           setFileName(savedFile.name);
-          setNotice(`${documentFormat.toUpperCase()} guardado. El archivo original se ha sobrescrito.`);
+          setNotice(t("metadata.savedOverwrite", { format: documentFormat.toUpperCase() }));
         } else {
           const url = URL.createObjectURL(blob);
           const link = document.createElement("a");
@@ -175,14 +177,14 @@ export function MetadataEditorPage() {
           link.click();
           setTimeout(() => URL.revokeObjectURL(url), 60_000);
           setFile(new File([blob], file.name, { type: mimeType }));
-          setNotice(`${documentFormat.toUpperCase()} actualizado y descargado.`);
+          setNotice(t("metadata.savedDownload", { format: documentFormat.toUpperCase() }));
         }
         setCoverFile(null);
       }
       setMetadata(values);
       setAuthorsText(values.authors.join("\n"));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "No se han podido guardar los metadatos");
+      setError(saveError instanceof Error ? saveError.message : t("metadata.saveError"));
     } finally {
       setIsSaving(false);
     }
@@ -217,24 +219,24 @@ export function MetadataEditorPage() {
   return (
     <main className="workspace-page">
       <header className="workspace-intro">
-        <h1 className="workspace-title">Metadatos</h1>
+        <h1 className="workspace-title">{t("metadata.title")}</h1>
       </header>
 
       {error ? <div className="alert alert-error mb-4"><span>{error}</span></div> : null}
       {notice ? <div className="alert alert-success mb-4"><span>{notice}</span></div> : null}
-      {isLoading ? <div className="skeleton-block" aria-label="Cargando metadatos" /> : hasDocument ? (
+      {isLoading ? <div className="skeleton-block" aria-label={t("metadata.loading")} /> : hasDocument ? (
         <form className="metadata-layout workbench-surface" onSubmit={save}>
           <aside className="metadata-rail">
             {documentFormat === "epub" ? <div className="metadata-cover">
               <div>
-                <h2 className="section-title">Portada</h2>
-                <p className="section-copy">JPEG, PNG o WebP.</p>
+                <h2 className="section-title">{t("metadata.cover")}</h2>
+                <p className="section-copy">{t("metadata.imageTypes")}</p>
               </div>
               <div className="metadata-cover__preview">
-                {coverPreview ? <img src={coverPreview} alt="Portada actual" className="h-full w-full object-contain" onError={() => setCoverPreview(null)} /> : <span className="px-3 text-center text-sm text-base-content/60">Sin portada</span>}
+                {coverPreview ? <img src={coverPreview} alt={t("metadata.currentCover")} className="h-full w-full object-contain" onError={() => setCoverPreview(null)} /> : <span className="px-3 text-center text-sm text-base-content/60">{t("metadata.noCover")}</span>}
               </div>
               <label className="btn btn-outline btn-sm">
-                Cambiar portada
+                {t("metadata.changeCover")}
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => {
                   const selected = event.target.files?.[0];
                   if (selected) {
@@ -248,56 +250,51 @@ export function MetadataEditorPage() {
               {coverFile ? <p className="operational-meta truncate text-base-content/60">{coverFile.name}</p> : null}
             </div> : <div className="metadata-cover">
               <div>
-                <h2 className="section-title">Documento PDF</h2>
-                <p className="section-copy">La primera página actúa como portada.</p>
+                <h2 className="section-title">{t("metadata.pdfDocument")}</h2>
+                <p className="section-copy">{t("metadata.firstPageCover")}</p>
               </div>
-              <div className="metadata-cover__preview" aria-label="Archivo PDF">
+              <div className="metadata-cover__preview" aria-label={t("metadata.pdfFile")}>
                 <div className="text-center">
                   <strong className="block text-2xl text-primary">PDF</strong>
-                  <span className="operational-meta text-base-content/60">Metadatos del documento</span>
+                  <span className="operational-meta text-base-content/60">{t("metadata.documentMetadata")}</span>
                 </div>
               </div>
-              <p className="field-help text-center">Editar los metadatos no modifica el contenido de las páginas.</p>
+              <p className="field-help text-center">{t("metadata.pagesNotEdited")}</p>
             </div>}
           </aside>
 
           <div className="metadata-form">
             <div>
-              <h2 className="section-title">Ficha del libro</h2>
-              <p className="section-copy">{file?.name ?? (jobId ? "EPUB procesado" : "Datos del archivo seleccionado")}</p>
+              <h2 className="section-title">{t("metadata.bookRecord")}</h2>
+              <p className="section-copy">{file?.name ?? (jobId ? t("metadata.processedEpub") : t("metadata.selectedFile"))}</p>
             </div>
             <label className="field-label">
-              <span>Nombre del archivo</span>
-              <input className="input input-bordered w-full" required readOnly={!jobId} value={fileName} onChange={(event) => { setFileName(event.target.value); markDocumentEdited(); }} placeholder={`libro.${documentFormat}`} />
-              <span className="field-help">{jobId ? `La extensión .${documentFormat} se añadirá automáticamente.` : "El nombre se conserva para sobrescribir exactamente el mismo archivo."}</span>
+              <span>{t("metadata.fileName")}</span>
+              <input className="input input-bordered w-full" required readOnly={!jobId} value={fileName} onChange={(event) => { setFileName(event.target.value); markDocumentEdited(); }} placeholder={t("metadata.filePlaceholder", { format: documentFormat })} />
+              <span className="field-help">{jobId ? t("metadata.extensionAdded", { format: documentFormat }) : t("metadata.originalNameReadOnly")}</span>
             </label>
-            <label className="field-label"><span>Título</span><input className="input input-bordered w-full" required value={metadata.title} onChange={(event) => { setMetadata({ ...metadata, title: event.target.value }); markDocumentEdited(); }} /></label>
-            <label className="field-label"><span>Autores</span><textarea className="textarea textarea-bordered min-h-24 w-full" value={authorsText} onChange={(event) => { setAuthorsText(event.target.value); markDocumentEdited(); }} /><span className="field-help">Escribe un autor por línea.</span></label>
+            <label className="field-label"><span>{t("metadata.bookTitle")}</span><input className="input input-bordered w-full" required value={metadata.title} onChange={(event) => { setMetadata({ ...metadata, title: event.target.value }); markDocumentEdited(); }} /></label>
+            <label className="field-label"><span>{t("metadata.authors")}</span><textarea className="textarea textarea-bordered min-h-24 w-full" value={authorsText} onChange={(event) => { setAuthorsText(event.target.value); markDocumentEdited(); }} /><span className="field-help">{t("metadata.oneAuthorPerLine")}</span></label>
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="field-label"><span>Idioma</span><input className="input input-bordered w-full" required={documentFormat === "epub"} placeholder="es" value={metadata.language} onChange={(event) => { setMetadata({ ...metadata, language: event.target.value }); markDocumentEdited(); }} /><span className="field-help">{documentFormat === "pdf" ? "Opcional; usa una etiqueta como es o es-ES." : "Código de idioma del libro."}</span></label>
-              <label className="field-label"><span>Editorial</span><input className="input input-bordered w-full" value={metadata.publisher} onChange={(event) => { setMetadata({ ...metadata, publisher: event.target.value }); markDocumentEdited(); }} /></label>
+              <label className="field-label"><span>{t("metadata.language")}</span><input className="input input-bordered w-full" required={documentFormat === "epub"} placeholder="es" value={metadata.language} onChange={(event) => { setMetadata({ ...metadata, language: event.target.value }); markDocumentEdited(); }} /><span className="field-help">{documentFormat === "pdf" ? t("metadata.languagePdf") : t("metadata.languageCode")}</span></label>
+              <label className="field-label"><span>{t("metadata.publisher")}</span><input className="input input-bordered w-full" value={metadata.publisher} onChange={(event) => { setMetadata({ ...metadata, publisher: event.target.value }); markDocumentEdited(); }} /></label>
             </div>
-            <label className="field-label"><span>{documentFormat === "pdf" ? "Asunto / descripción" : "Descripción"}</span><textarea className="textarea textarea-bordered min-h-32 w-full" value={metadata.description} onChange={(event) => { setMetadata({ ...metadata, description: event.target.value }); markDocumentEdited(); }} /></label>
+            <label className="field-label"><span>{documentFormat === "pdf" ? t("metadata.subjectDescription") : t("metadata.description")}</span><textarea className="textarea textarea-bordered min-h-32 w-full" value={metadata.description} onChange={(event) => { setMetadata({ ...metadata, description: event.target.value }); markDocumentEdited(); }} /></label>
             <div className="flex flex-wrap justify-end gap-2 pt-2">
-              <button type="button" className="btn btn-ghost" onClick={cancelEditing} disabled={isSaving}>Cancelar</button>
-              <button className="btn btn-primary" type="submit" disabled={isSaving}>{isSaving ? <span className="loading loading-spinner loading-sm" /> : null}{jobId || isDeviceBook || fileHandle ? "Guardar y sobrescribir" : "Guardar y descargar"}</button>
+              <button type="button" className="btn btn-ghost" onClick={cancelEditing} disabled={isSaving}>{t("common.cancel")}</button>
+              <button className="btn btn-primary" type="submit" disabled={isSaving}>{isSaving ? <span className="loading loading-spinner loading-sm" /> : null}{jobId || isDeviceBook || fileHandle ? t("metadata.saveOverwrite") : t("metadata.saveDownload")}</button>
             </div>
           </div>
         </form>
       ) : (
         <section className="workbench-surface workbench-section">
-          <div className="mb-4">
-            <h2 className="section-title">Abrir un EPUB o PDF</h2>
-            <p className="section-copy">Edita los metadatos y guarda el resultado. Si tu navegador permite escritura local, puedes sobrescribir el original; en otros navegadores se descarga una copia.</p>
-          </div>
           <button type="button" className="file-dropzone w-full" onClick={() => void openWritableFile()}>
             <svg aria-hidden="true" className="h-10 w-10 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" />
             </svg>
-            <span className="file-dropzone__title">Seleccionar EPUB o PDF</span>
-            <span className="file-dropzone__meta">EPUB o PDF desde tu equipo</span>
+            <span className="file-dropzone__title">{t("metadata.selectFile")}</span>
           </button>
-          <input ref={fileInput} type="file" accept=".epub,.pdf" aria-label="Archivo EPUB o PDF" className="hidden" onChange={event => {
+          <input ref={fileInput} type="file" accept=".epub,.pdf" aria-label={t("metadata.fileAria")} className="hidden" onChange={event => {
             const selected = event.target.files?.[0];
             if (selected) { setFileHandle(null); void loadFile(selected); }
             event.target.value = "";

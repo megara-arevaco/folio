@@ -1,20 +1,53 @@
 name: folio
 services:
-  folio:
+  api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      target: runtime
     ports:
       - "127.0.0.1:3001:3001"
     env_file:
       - path: .env
         required: false
     environment:
+      NODE_ENV: production
       HOST: "0.0.0.0"
       PORT: "3001"
       FOLIO_DATA_DIR: /data
+      JOBS_TMP_ROOT: /data/jobs
+      OUTPUT_DIR: /data/books
+      READING_DB_PATH: /data/reading-log.sqlite
+      READING_LOG_PATH: /data/reading-log.json
+      TESSDATA_PREFIX: /app/tessdata
+      LLM_MOCK: "${LLM_MOCK:-true}"
+      PDF_CONVERSION_PROVIDER: "${PDF_CONVERSION_PROVIDER:-local}"
     volumes:
       - folio_data:/data
     restart: unless-stopped
+    init: true
+    stop_grace_period: 5m
+    cpus: 1.0
+    mem_limit: 2g
+    pids_limit: 128
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/api/reading-log', {signal: AbortSignal.timeout(4000)}).then(r => {if (!r.ok) throw new Error(String(r.status));}).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 volumes:
   folio_data:

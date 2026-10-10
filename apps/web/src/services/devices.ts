@@ -1,10 +1,11 @@
 import type { EbookDevice } from "../../../../packages/contracts/src";
+import i18n from "../i18n";
 export type { DeviceBook, EbookDevice } from "../../../../packages/contracts/src";
 import { API_BASE_URL, readApiData, readErrorMessage } from "./http";
 
 export async function fetchEbookDevices(): Promise<EbookDevice[]> {
   const response = await fetch(`${API_BASE_URL}/api/devices`);
-  if (!response.ok) throw new Error(await readErrorMessage(response, "No se han podido consultar los dispositivos"));
+  if (!response.ok) throw new Error(await readErrorMessage(response, i18n.t("metadata.deviceListError")));
   return readApiData<EbookDevice[]>(response);
 }
 
@@ -14,7 +15,7 @@ export function getDeviceBookUrl(deviceId: string, path: string): string {
 
 export async function fetchDeviceBook(deviceId: string, path: string, fileName: string): Promise<File> {
   const response = await fetch(getDeviceBookUrl(deviceId, path));
-  if (!response.ok) throw new Error(await readErrorMessage(response, "No se ha podido leer el libro del dispositivo"));
+  if (!response.ok) throw new Error(await readErrorMessage(response, i18n.t("metadata.deviceReadError")));
   const type = fileName.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/epub+zip";
   return new File([await response.blob()], fileName, { type });
 }
@@ -27,14 +28,14 @@ export async function replaceDeviceBook(deviceId: string, path: string, file: Bl
     body,
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "No se ha podido sobrescribir el archivo del dispositivo"));
+    throw new Error(await readErrorMessage(response, i18n.t("metadata.deviceOverwriteError")));
   }
 }
 
 export async function deleteDeviceBook(deviceId: string, path: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/devices/${encodeURIComponent(deviceId)}/books?path=${encodeURIComponent(path)}`, { method: "DELETE" });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "No se ha podido borrar el libro del dispositivo"));
+    throw new Error(await readErrorMessage(response, i18n.t("metadata.deviceDeleteError")));
   }
 }
 
@@ -42,6 +43,6 @@ export async function uploadDeviceBook(deviceId: string, file: File): Promise<{ 
   const body = new FormData();
   body.append("file", file);
   const response = await fetch(`${API_BASE_URL}/api/devices/${encodeURIComponent(deviceId)}/books`, { method: "POST", body });
-  if (!response.ok) throw new Error(await readErrorMessage(response, "No se ha podido enviar el archivo al dispositivo"));
+  if (!response.ok) throw new Error(await readErrorMessage(response, i18n.t("metadata.deviceSendError")));
   return readApiData<{ path: string; fileName: string }>(response);
 }
