@@ -174,7 +174,8 @@ test("previsualiza páginas PDF locales y explica el diagnóstico del puente sin
   pdf.addPage().drawText("Fictional local sample page, made only for Folio preview checks.", { x: 48, y: 720, font, size: 14 });
 
   await page.getByRole("link", { name: "Convertir PDF", exact: true }).click();
-  await page.locator('input[type="file"]').setInputFiles({ name: "muestra-ficticia.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdf.save()) });
+  await expect(page.getByRole("heading", { name: "Convertir PDF", exact: true })).toBeVisible();
+  await page.locator('input[type="file"][accept=".pdf"]').setInputFiles({ name: "muestra-ficticia.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdf.save()) });
   await page.getByRole("button", { name: "Previsualizar muestra" }).click();
   await expect(page.getByText(/Fictional local sample page/)).toBeVisible();
   await expect(page.getByText("Extracción local de texto seleccionable; no aplica OCR en esta muestra.")).toBeVisible();

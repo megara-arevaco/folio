@@ -23,6 +23,7 @@ async function launch() {
   desktop = await electron.launch(options);
   const page = await desktop.firstWindow();
   await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1280, height: 900 });
   return page;
 }
 

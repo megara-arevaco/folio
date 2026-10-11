@@ -61,7 +61,9 @@ try {
   }
   assert.ok(ready, "A new Electron process must start after maintenance");
   relaunchedBrowser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-  const newPage = relaunchedBrowser.contexts()[0].pages()[0];
+  const context = relaunchedBrowser.contexts()[0];
+  const newPage = context.pages()[0] ?? await context.waitForEvent("page");
+  await newPage.waitForURL(/^http:\/\/127\.0\.0\.1:\d+/);
   await newPage.waitForLoadState("networkidle");
   assert.equal(await newPage.evaluate(() => document.documentElement.lang), "en");
   assert.equal(await newPage.evaluate(async () => (await fetch("/api/jobs")).status), 200);
