@@ -244,8 +244,11 @@ corepack pnpm desktop:dev
 ```
 
 See [the desktop guide](docs/desktop.md) for packaging, tests, Linux sandbox setup,
-and remaining dependencies. This is not yet a signed commercial release; only the
-Linux unpacked build has been exercised. Translation still uses an external provider.
+and remaining dependencies. This is a free beta foundation, not a signed public release.
+Installed Debian and Windows NSIS packages passed CI sandbox, backup/restore, real
+relaunch, and uninstall checks on Ubuntu 24.04 and Windows Server 2022. Manual Windows
+10/11, minimal-machine, keyring, and upgrade testing remain pending. See
+[release validation](docs/release-validation.md). Translation still uses an external provider.
 
 ## Running the built application
 

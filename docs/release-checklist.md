@@ -12,22 +12,22 @@ La licencia de distribución del código sigue pendiente; gratuito no implica c�
 - [x] Generación de SHA-256.
 - [x] Releases por tag como borradores prerelease, nunca publicación automática.
 
-La existencia del workflow no significa que haya pasado en GitHub.
-Resultados de la comprobación local: [release-validation.md](release-validation.md).
-El smoke se corrigió para evitar que Playwright añadiera `--no-sandbox` implícitamente.
-El .deb instalado en el anfitrión ya pasa con sandbox efectivo y relaunch real, pero
-falta una instalación limpia. El CI prueba instalación, relaunch y desinstalación en
-runners desechables; se dispara en ramas `desktop/**`, sin publicar releases.
+Resultados y enlaces de CI: [release-validation.md](release-validation.md).
+El CI de escritorio pasó en Ubuntu 24.04 y Windows Server 2022; el web pasó sus 25 E2E.
+El smoke exige sandbox, sin el flag implícito de Playwright. El .deb del anfitrión pasa
+además con NoNewPrivs=1, Seccomp=2 y relaunch real. Quedan pruebas manuales en máquinas
+mínimas y Windows 10/11. Los pushes de ramas `desktop/**` no publican releases.
 
 ## Bloqueos de publicación
 
 - [ ] Elegir licencia del proyecto y añadir el archivo correspondiente.
 - [ ] Revisar y distribuir avisos/licencias de dependencias, fuentes y modelos OCR.
-- [ ] Completar CI en ambos sistemas; registrar enlace al run.
+- [x] Completar CI en ambos sistemas: run 38170015575 (código/pruebas 06c88f1).
+- [x] Instalar .deb/NSIS, probar sandbox y relaunch real, desinstalar y conservar datos centinela en runners.
 - [ ] Probar `.deb` en instalación limpia y arranque con sandbox, sin flags que lo desactiven.
 - [ ] Probar AppImage con sandbox; si falla, no distribuirlo como soportado.
 - [ ] Probar instalador Windows en Windows 10/11 x64, no solo en el runner Server.
-- [ ] Verificar instalación, actualización, desinstalación y conservación de datos.
+- [ ] Probar actualización entre versiones y conservación de una biblioteca poblada (CI ya prueba instalación/desinstalación con centinela).
 - [ ] Verificar llavero Linux y cifrado de claves Windows con claves ficticias.
 - [x] Persistencia del idioma en el perfil, independiente del puerto; probada entre aperturas.
 - [x] Diagnóstico de dependencias/llavero en Ajustes y errores accionables antes de usar herramientas ausentes.
@@ -59,6 +59,7 @@ Los resultados quedan en `dist-desktop/`. `desktop:dist:*` no publica nada.
 ## CI y borrador de GitHub Release
 
 - PRs relevantes: compilan ambos sistemas y adjuntan artefactos si pasan pruebas.
+- Push a `desktop/**`: compila, instala y prueba ambos sistemas, sin crear release.
 - `workflow_dispatch`: genera artefactos descargables sin crear release.
 - Tag `v0.1.0-beta.1`: valida coincidencia con package.json, compila y crea borrador
   prerelease con los artefactos y checksums si ambos jobs pasan.
@@ -71,4 +72,6 @@ No se han configurado credenciales de firma, notificaciones ni autoactualizació
 
 | Sistema y versión | Artefacto/hash | Instalación | Sandbox | Archivos/descargas | Cierre/reapertura | Claves | Actualización/desinstalación |
 |---|---|---|---|---|---|---|---|
-| Pendiente | | | | | | | |
+| Ubuntu 26.04.1 x64 (anfitrión) | .deb 0.1.0-beta.1 | Correcta | NoNewPrivs=1, Seccomp=2 | Diálogos simulados | Reinicio real correcto | Llavero real pendiente | No se desinstala |
+| Ubuntu 24.04 x64 (CI) | Run 38170015575 | Correcta | Correcto | Diálogos simulados | Reinicio real correcto | Llavero real pendiente | Desinstalación + centinela correctos |
+| Windows Server 2022 x64 (CI) | Run 38170015575 | NSIS correcto | Sin --no-sandbox | Diálogos simulados | Reinicio real correcto | Clave real pendiente | Desinstalación + centinela correctos |

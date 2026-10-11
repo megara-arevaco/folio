@@ -149,8 +149,9 @@ FOLIO_TEST_EXECUTABLE=dist-desktop/linux-unpacked/folio node scripts/smoke-deskt
 Configurados objetivos Linux x64 (.deb y AppImage) y Windows x64 (NSIS); macOS queda
 fuera de esta release. El workflow `.github/workflows/desktop.yml` compila en ambos
 sistemas y ejecuta un smoke del directorio empaquetado. Esto no sustituye la prueba
-manual de los instaladores ni acredita Windows antes de ejecutar el workflow. Ahora
-instala/desinstala los paquetes en los runners y prueba el ejecutable instalado.
+manual de los instaladores. El CI aprobado instala/desinstala .deb y NSIS y prueba el
+sandbox y el relaunch real en Ubuntu 24.04 y Windows Server 2022. Windows 10/11 y VM
+mínima siguen pendientes. Véanse los enlaces y alcance en release-validation.md.
 El primer empaquetado puede descargar Electron. Las releases por tag se crean como
 borradores; no se publican automáticamente.
 

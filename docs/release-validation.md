@@ -11,7 +11,7 @@ Ubuntu 26.04.1 LTS x86_64, Node.js 24.21.0. User namespaces habilitados en el ke
 pero restringidos por AppArmor (`kernel.apparmor_restrict_unprivileged_userns=1`).
 `unshare -Ur true` falla con operación no permitida.
 
-## Resultados
+## Resultados de la primera fase (antes de instalar)
 
 | Comprobación | Resultado | Alcance |
 |---|---|---|
@@ -63,17 +63,43 @@ Resultados sobre `/opt/Folio/folio`, sin `--no-sandbox`:
 Esto valida el equipo anfitrión, no una máquina limpia. El AppImage sigue requiriendo
 FUSE2 y validación propia; la instalación .deb no resuelve esa dependencia.
 
-## CI preparado, pendiente de ejecución
+## CI Linux y Windows aprobado
 
-El workflow ahora instala .deb y NSIS en runners desechables, prueba el ejecutable
-instalado con sandbox y desinstala comprobando un archivo centinela en la carpeta de
-datos. No equivale a validar Windows 10/11 manualmente ni actualización entre versiones.
-No se ejecutó este workflow remoto: sigue siendo un archivo local sin subir.
+Rama: `desktop/linux-windows-beta`. Commit de código/pruebas validado: `06c88f1`.
+
+- [Desktop CI aprobado](https://github.com/megara-arevaco/folio/actions/runs/38170015575).
+- [Web CI aprobado](https://github.com/megara-arevaco/folio/actions/runs/38170015657), 25 E2E.
+
+Ambos jobs nativos completaron compilación, cinco tests de escritorio, generación de
+paquetes, instalación, smoke del ejecutable instalado con sandbox, reinicio real tras
+backup, desinstalación y conservación de un archivo centinela en la carpeta de datos.
+
+| Sistema | Resultado | Alcance |
+|---|---|---|
+| Ubuntu 24.04 x64, runner | Aprobado | .deb instalado, sandbox, relaunch y desinstalación |
+| Windows Server 2022 x64, runner | Aprobado | NSIS instalado, sandbox, relaunch y desinstalación |
+| Ubuntu 26.04.1 x64, anfitrión | Aprobado | .deb instalado, sandbox y relaunch; se deja instalado |
+| Windows 10/11 de usuario | Pendiente | Interacción manual, llavero, archivos y actualización |
+| AppImage | Pendiente/bloqueado localmente | Falta FUSE2 y validación propia de sandbox |
+
+El primer CI detectó carreras de pruebas: viewport Windows, creación de página tras
+relaunch y selección del input durante navegación web. Se corrigieron con viewport
+explícito, espera del evento de página/URL y selector de input PDF. No se omitieron
+comprobaciones ni se desactivó sandbox para obtener el aprobado.
+
+Artefactos descargables del run: `Folio-linux-x64`, `Folio-windows-x64`, con SHA-256.
+El instalador Windows se descargó a `dist-desktop/ci-windows/` y sus hashes se verificaron.
+No se ha fusionado a main, creado un tag ni publicado una release. El job de borrador
+queda omitido porque esta ejecución es de rama, no de tag.
+
+Los diálogos de selección/confirmación se simulan en las pruebas. El relaunch sí crea
+un proceso nuevo. Los runners tienen herramientas de desarrollo instaladas: esto no
+sustituye una prueba en VM mínima, Windows 10/11 ni actualización entre versiones.
 
 ## Siguiente comprobación
 
-1. Completar pruebas en runner/VM desechable; instalación local y relaunch ya comprobados.
-2. Subir la rama de trabajo autorizada, sin tags de release, y ejecutar CI Linux/Windows.
-3. Registrar resultados de CI y validar Windows 10/11 manualmente.
+1. Validar manualmente Windows 10/11 y una VM Linux mínima.
+2. Probar diálogos reales, llavero y actualización entre versiones con biblioteca ficticia.
+3. Validar recuperación de cierres forzados en los instaladores.
 4. Revisar AppImage: dependencia FUSE2 y compatibilidad del sandbox por distribución.
 5. Elegir licencia: el control Debian actual indica `License: unknown`.
