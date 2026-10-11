@@ -8,6 +8,7 @@ import { mkdtemp, open, readdir, realpath, rename, rm, stat, writeFile, link } f
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep, delimiter } from "node:path";
 import { promisify } from "node:util";
+import { requireGio } from "./runtimeDependencies";
 import { readEpubMetadata } from "./epubMetadata";
 
 export type EbookDevice = PublicEbookDevice & { root: string };
@@ -255,6 +256,7 @@ async function replaceKnownDeviceBookUnlocked(device: EbookDevice, bookPath: str
   if (!book) return false;
   const isGvfsMtp = device.root.split(sep).some((part) => part === "gvfs") || basename(device.root).startsWith("mtp:host=");
   if (isGvfsMtp) {
+    await requireGio();
     const temporaryDirectory = await mkdtemp(join(tmpdir(), "kindle-replace-"));
     const source = join(temporaryDirectory, book.fileName);
     try {
@@ -349,6 +351,7 @@ async function uploadKnownDeviceBookUnlocked(device: EbookDevice, fileName: stri
   let destination = await availableUploadPath(directory, safeName);
   const isGvfsMtp = device.root.split(sep).some((part) => part === "gvfs") || basename(device.root).startsWith("mtp:host=");
   if (isGvfsMtp) {
+    await requireGio();
     const temporaryDirectory = await mkdtemp(join(tmpdir(), "kindle-copy-"));
     const source = join(temporaryDirectory, safeName);
     try {

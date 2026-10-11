@@ -104,6 +104,20 @@ Hasta 1180px la navegación pasa al menú desplegable. Hasta 1080px el editor de
 
 TypeScript y build de Vite correctos. Capturas de las cinco rutas a 1440px y 390px inspeccionadas en `.impeccable/review/`: sin desbordamiento horizontal, menú móvil funcional y jerarquía consistente. Veredicto: adaptación visual coherente con la referencia; no es una copia exacta de sus fuentes comerciales ni de su composición de contacto. La revisión cubre estados iniciales, no valida conversiones reales, un e-reader conectado ni datos poblados.
 
+## Ajustes de escritorio — beta gratuita
+
+La variante Electron conserva el lenguaje editorial. En Ajustes añade «Funciones de este
+ equipo» con una lista de herramientas/llavero y orientación ante dependencias ausentes.
+La copia de seguridad utiliza botones de crear, verificar y restaurar; la variante web
+conserva sus instrucciones CLI. No se cambian paleta, tipografía, CSS ni otras rutas.
+
+Inspección de capturas Electron a 1280 y 760 px: sin desbordamiento horizontal y controles
+legibles en el estado de herramientas ausentes/llavero no disponible. Se corrigió una
+etiqueta de presupuesto que mostraba variables sin interpolar. Veredicto: ampliación
+coherente con Ajustes; no es un rediseño. El smoke comprueba idioma entre aperturas y
+mantenimiento con diálogos simulados; no valida diálogos manuales, Windows, llavero real
+ni el sandbox efectivo del SO (la prueba local necesitó la excepción documentada).
+
 ## Evitar
 
 Marco nogal, píldoras en campos y botones ordinarios, glassmorphism, gradientes decorativos, sombras anchas, mapas o fotografías de relleno y tipografía serif en controles densos.

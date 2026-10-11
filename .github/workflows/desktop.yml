@@ -1,0 +1,149 @@
+name: Folio Desktop beta
+
+on:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop.yml'
+  push:
+    branches:
+      - 'desktop/**'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+          - os: windows-2022
+            platform: windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: node -e "const p=require('./package.json'); if(process.env.GITHUB_REF_NAME !== 'v'+p.version) throw Error('Tag and package version differ')"
+      - run: pnpm typecheck
+      - run: pnpm check:architecture
+      - run: pnpm desktop:build
+      - run: pnpm desktop:test
+      - name: Build distribution (no automatic publishing)
+        run: pnpm desktop:dist:${{ matrix.platform }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Install Debian package on disposable Linux runner
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get install --yes --no-install-recommends ./dist-desktop/*.deb
+          mkdir -p "$HOME/.config/Folio/data"
+          printf 'keep-user-data\n' > "$HOME/.config/Folio/data/ci-preservation-sentinel"
+      - name: Smoke installed Linux app with sandbox
+        if: matrix.platform == 'linux'
+        run: xvfb-run -a pnpm desktop:smoke
+        env:
+          FOLIO_TEST_EXECUTABLE: /opt/Folio/folio
+      - name: Check real Linux relaunch after backup
+        if: matrix.platform == 'linux'
+        run: xvfb-run -a node scripts/smoke-desktop-relaunch.mjs
+        env:
+          FOLIO_TEST_EXECUTABLE: /opt/Folio/folio
+      - name: Uninstall Linux app and check data preservation
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get remove --yes folio
+          test "$(cat "$HOME/.config/Folio/data/ci-preservation-sentinel")" = 'keep-user-data'
+      - name: Install NSIS package on disposable Windows runner
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $installer = @(Get-ChildItem dist-desktop -Filter '*.exe')
+          if ($installer.Count -ne 1) { throw 'Expected one NSIS installer' }
+          $destination = Join-Path $env:RUNNER_TEMP 'FolioInstalled'
+          $process = Start-Process -FilePath $installer[0].FullName -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $exe = Join-Path $destination 'Folio.exe'
+          if (!(Test-Path $exe)) { throw 'Installed executable not found' }
+          "FOLIO_TEST_EXECUTABLE=$exe" >> $env:GITHUB_ENV
+          $data = Join-Path $env:APPDATA 'Folio/data'
+          New-Item -ItemType Directory -Force -Path $data | Out-Null
+          Set-Content -Path (Join-Path $data 'ci-preservation-sentinel') -Value 'keep-user-data'
+      - name: Smoke installed Windows app
+        if: matrix.platform == 'windows'
+        run: pnpm desktop:smoke
+      - name: Check real Windows relaunch after backup
+        if: matrix.platform == 'windows'
+        run: node scripts/smoke-desktop-relaunch.mjs
+      - name: Uninstall Windows app and check data preservation
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'FolioInstalled'
+          $uninstaller = @(Get-ChildItem $destination -Filter '*Uninstall*.exe')
+          if ($uninstaller.Count -ne 1) { throw 'Uninstaller not found' }
+          $process = Start-Process -FilePath $uninstaller[0].FullName -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Uninstaller failed: $($process.ExitCode)" }
+          $sentinel = Join-Path $env:APPDATA 'Folio/data/ci-preservation-sentinel'
+          if ((Get-Content $sentinel -Raw).Trim() -ne 'keep-user-data') { throw 'Uninstall changed user data' }
+      - run: pnpm desktop:checksums
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Folio-${{ matrix.platform }}-x64
+          if-no-files-found: error
+          path: |
+            dist-desktop/*.AppImage
+            dist-desktop/*.deb
+            dist-desktop/*.exe
+            dist-desktop/*.blockmap
+            dist-desktop/SHA256SUMS.txt
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      - name: Assemble release checksums
+        shell: bash
+        run: |
+          mkdir release-files
+          find release-artifacts -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.exe' -o -name '*.blockmap' \) -exec cp {} release-files/ \;
+          find release-artifacts -name SHA256SUMS.txt -exec cat {} + | sort > release-files/SHA256SUMS.txt
+          cd release-files
+          sha256sum --check SHA256SUMS.txt
+      - name: Create draft prerelease, never publish automatically
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-files/* \
+            --verify-tag --draft --prerelease \
+            --title "Folio Desktop $GITHUB_REF_NAME — beta gratuita" \
+            --notes-file docs/releases/desktop-beta.md

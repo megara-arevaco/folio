@@ -9,6 +9,7 @@ node_modules/
 
 # Build artifacts
 dist/
+dist-desktop/
 apps/web/dist/
 coverage/
 *.tsbuildinfo

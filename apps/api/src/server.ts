@@ -36,6 +36,12 @@ export async function createServer(): Promise<FastifyInstance> {
       exposedHeaders: ["X-Local-File-Id", "X-File-Name", "Content-Disposition"],
     });
     app.addHook("onRequest", async (request, reply) => {
+      // Desktop requests carry a per-launch secret injected by the main process.
+      // Origin checks alone do not protect a loopback API from other clients.
+      const desktopToken = process.env.FOLIO_DESKTOP_TOKEN;
+      if (desktopToken && request.headers["x-folio-desktop-token"] !== desktopToken) {
+        return reply.code(401).send({ ok: false, error: "Sesión local no autorizada" });
+      }
       const origin = request.headers.origin;
       if (origin && origin !== `${request.protocol}://${request.headers.host}` && !allowedOrigins.includes(origin)) {
         return reply.code(403).send({ ok: false, error: "Origen no autorizado" });
@@ -52,7 +58,7 @@ export async function createServer(): Promise<FastifyInstance> {
     await app.register(readingLogRoutes);
     await app.register(settingsRoutes);
     await app.register(previewRoutes);
-    const webRoot = resolve("apps/web/dist");
+    const webRoot = resolve(process.env.FOLIO_WEB_ROOT ?? "apps/web/dist");
     if (existsSync(webRoot)) {
       await app.register(fastifyStatic, { root: webRoot });
       app.setNotFoundHandler((request, reply) => {

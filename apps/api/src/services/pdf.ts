@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import AdmZip from "adm-zip";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createWorker, type Worker } from "tesseract.js";
+import { requirePdfRenderer } from "./runtimeDependencies";
 import type { JobProgress } from "../types";
 import type { AiBudgetContext } from "./aiBudget";
 import { PauseRequestedError } from "./epub";
@@ -530,6 +531,7 @@ async function processLocalPdfToEpub(
       let paragraphs = extractParagraphsFromTextItems(textContent.items as PdfTextItem[]);
       const usefulTextLength = paragraphs.join(" ").replace(/\W/g, "").length;
       if (usefulTextLength < 40 && enableOcr) {
+        if (!ocrWorker) await requirePdfRenderer();
         selectedOcrLanguage ??= await getAvailableOcrLanguages(
           ocrLanguage,
           resolve(process.env.TESSDATA_PREFIX ?? process.cwd()),

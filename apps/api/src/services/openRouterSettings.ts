@@ -8,7 +8,25 @@ export type OpenRouterSettingsStatus = {
   source: OpenRouterSettingsSource;
 };
 
-type StoredSettings = Record<string, unknown> & { openRouterApiKey?: string };
+type StoredSettings = Record<string, unknown> & { openRouterApiKey?: string; encryptedOpenRouterApiKey?: string };
+
+type SecretCodec = { encrypt(value: string): string; decrypt(value: string): string };
+let secretCodec: SecretCodec | undefined;
+
+// Supplied by the desktop main process; web installations remain unchanged.
+export function configureSettingsSecretCodec(codec: SecretCodec): void {
+  secretCodec = codec;
+}
+
+function savedApiKey(settings: StoredSettings): string | undefined {
+  if (settings.encryptedOpenRouterApiKey !== undefined) {
+    if (typeof settings.encryptedOpenRouterApiKey !== "string" || !secretCodec) {
+      throw new Error("La clave cifrada requiere el almacén seguro de Folio Desktop");
+    }
+    return secretCodec.decrypt(settings.encryptedOpenRouterApiKey).trim();
+  }
+  return settings.openRouterApiKey?.trim();
+}
 
 function settingsFilePath(): string {
   if (process.env.FOLIO_SETTINGS_PATH) return resolve(process.env.FOLIO_SETTINGS_PATH);
@@ -57,12 +75,12 @@ function environmentApiKey(): string | null {
 }
 
 export function getOpenRouterApiKey(): string | null {
-  const savedKey = readSettings().openRouterApiKey?.trim();
+  const savedKey = savedApiKey(readSettings());
   return savedKey || environmentApiKey();
 }
 
 export function getOpenRouterSettingsStatus(): OpenRouterSettingsStatus {
-  const savedKey = readSettings().openRouterApiKey?.trim();
+  const savedKey = savedApiKey(readSettings());
   if (savedKey) return { configured: true, source: "settings" };
   if (environmentApiKey()) return { configured: true, source: "environment" };
   return { configured: false, source: "none" };
@@ -70,7 +88,12 @@ export function getOpenRouterSettingsStatus(): OpenRouterSettingsStatus {
 
 export function saveOpenRouterApiKey(apiKey: string): OpenRouterSettingsStatus {
   const settings = readSettings();
-  settings.openRouterApiKey = apiKey;
+  if (secretCodec) {
+    settings.encryptedOpenRouterApiKey = secretCodec.encrypt(apiKey);
+    delete settings.openRouterApiKey;
+  } else {
+    settings.openRouterApiKey = apiKey;
+  }
   writeSettings(settings);
   return { configured: true, source: "settings" };
 }
@@ -78,6 +101,7 @@ export function saveOpenRouterApiKey(apiKey: string): OpenRouterSettingsStatus {
 export function removeSavedOpenRouterApiKey(): OpenRouterSettingsStatus {
   const settings = readSettings();
   delete settings.openRouterApiKey;
+  delete settings.encryptedOpenRouterApiKey;
   writeSettings(settings);
   return getOpenRouterSettingsStatus();
 }

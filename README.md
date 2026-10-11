@@ -231,6 +231,22 @@ in `playwright-report/`. Open it with:
 pnpm exec playwright show-report
 ```
 
+## Desktop application (development foundation)
+
+An Electron shell can run the existing interface and processing engine locally,
+without Docker or a separate server. It uses a private data directory, a
+session-protected loopback API, and OS-backed encryption for saved API keys.
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack enable --install-directory node_modules/.bin pnpm
+corepack pnpm desktop:dev
+```
+
+See [the desktop guide](docs/desktop.md) for packaging, tests, Linux sandbox setup,
+and remaining dependencies. This is not yet a signed commercial release; only the
+Linux unpacked build has been exercised. Translation still uses an external provider.
+
 ## Running the built application
 
 ```bash

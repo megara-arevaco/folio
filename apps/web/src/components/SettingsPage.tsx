@@ -7,12 +7,16 @@ import {
   type OpenRouterSettings,
 } from "../services/settings";
 import { fetchProcessingPreflight, type ProcessingPreflight } from "../services/translation";
+import { DesktopSettingsPanel } from "./DesktopSettingsPanel";
+import type { DesktopCapabilities } from "../desktop";
 
 type Notice = { kind: "success" | "error"; text: string };
 
 export function SettingsPage() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<OpenRouterSettings | null>(null);
+  const [desktopCapabilities, setDesktopCapabilities] = useState<DesktopCapabilities | null>(window.folioDesktop?.capabilities ?? null);
+  const cannotStoreKey = desktopCapabilities?.secureStorage === false;
   const [preflight, setPreflight] = useState<ProcessingPreflight | null>(null);
   const [budgetFailed, setBudgetFailed] = useState(false);
   const [commandCopied, setCommandCopied] = useState(false);
@@ -93,9 +97,9 @@ export function SettingsPage() {
   });
 
   const sourceMessage = settings?.source === "settings"
-    ? t("settings.sourceSaved")
+    ? t(desktopCapabilities ? "desktop.sourceSaved" : "settings.sourceSaved")
     : settings?.source === "environment"
-      ? t("settings.sourceEnvironment")
+      ? t(desktopCapabilities ? "desktop.sourceEnvironment" : "settings.sourceEnvironment")
       : t("settings.sourceMissing");
 
   return (
@@ -110,7 +114,7 @@ export function SettingsPage() {
         <section className="settings-panel workbench-surface workbench-section" aria-labelledby="settings-openrouter-title">
           <div>
             <h2 className="section-title" id="settings-openrouter-title">{t("settings.openRouter")}</h2>
-            <p className="section-copy">{t("settings.description")}</p>
+            <p className="section-copy">{t(desktopCapabilities ? "desktop.keyDescription" : "settings.description")}</p>
           </div>
 
           {isLoading ? <p className="settings-loading" role="status">{t("common.loading")}</p> : null}
@@ -148,14 +152,15 @@ export function SettingsPage() {
                 autoCorrect="off"
                 spellCheck={false}
                 maxLength={512}
-                disabled={isLoading || loadFailed || isBusy}
+                disabled={isLoading || loadFailed || isBusy || cannotStoreKey}
                 aria-describedby="openrouter-api-key-help"
               />
             </label>
-            <p className="field-help" id="openrouter-api-key-help">{t("settings.help")}</p>
+            <p className="field-help" id="openrouter-api-key-help">{t(desktopCapabilities ? "desktop.keyHelp" : "settings.help")}</p>
+            {cannotStoreKey ? <p role="alert">{t("desktop.storageHelp")}</p> : null}
 
             <div className="settings-actions">
-              <button type="submit" className="btn btn-primary" disabled={isLoading || loadFailed || isBusy || !apiKey.trim()}>
+              <button type="submit" className="btn btn-primary" disabled={isLoading || loadFailed || isBusy || cannotStoreKey || !apiKey.trim()}>
                 {isBusy ? t("settings.saving") : t("settings.saveKey")}
               </button>
               {settings?.source === "settings" ? (
@@ -186,7 +191,7 @@ export function SettingsPage() {
               output: formatCount(preflight.aiBudget.caps.job.outputTokens),
             })}</dd></div>
             <div><dt>{t("settings.budgetSamples")}</dt><dd>{budgetMeter(preflight.aiBudget.usage.samples, preflight.aiBudget.caps.samples)}</dd></div>
-            <div><dt>{t("preflight.budgetSampleCap")}</dt><dd>{t("preflight.budgetJob", {
+            <div><dt>{t("settings.budgetSample")}</dt><dd>{t("preflight.budgetJob", {
               requests: formatCount(preflight.aiBudget.caps.sample.requests),
               input: formatCount(preflight.aiBudget.caps.sample.inputTokenBound),
               output: formatCount(preflight.aiBudget.caps.sample.outputTokens),
@@ -195,7 +200,7 @@ export function SettingsPage() {
           <p className="field-help">{t("settings.budgetUnitNote")}</p>
         </section>
 
-        <section className="settings-panel settings-backup workbench-surface workbench-section" aria-labelledby="settings-backup-title">
+        {desktopCapabilities ? <DesktopSettingsPanel capabilities={desktopCapabilities} onCapabilitiesChange={setDesktopCapabilities} /> : <section className="settings-panel settings-backup workbench-surface workbench-section" aria-labelledby="settings-backup-title">
           <div>
             <h2 className="section-title" id="settings-backup-title">{t("settings.backupTitle")}</h2>
             <p className="section-copy">{t("settings.backupDescription")}</p>
@@ -214,7 +219,7 @@ export function SettingsPage() {
             <button type="button" className="btn btn-outline btn-sm" onClick={() => void copyBackupCommand()}>{t("settings.backupCopyCommand")}</button>
             {commandCopied ? <span role="status">{t("settings.backupCopied")}</span> : null}
           </div>
-        </section>
+        </section>}
       </div>
     </main>
   );

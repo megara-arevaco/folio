@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { promisify } from "node:util";
+import { requireKindleConverter } from "./runtimeDependencies";
 
 const execFileAsync = promisify(execFile);
 const conversions = new LimitedOperations(2);
@@ -29,6 +30,7 @@ async function prepareKindleUploadUnlocked(data: Buffer, fileName: string): Prom
   if (extname(fileName).toLowerCase() !== ".epub") return { data, fileName, converted: false };
 
   openValidatedZip(data);
+  await requireKindleConverter();
   const directory = await mkdtemp(join(tmpdir(), "epub-to-kindle-"));
   const inputPath = join(directory, "input.epub");
   const outputPath = join(directory, "output.azw3");
