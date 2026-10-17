@@ -105,6 +105,28 @@ export async function acquireInstanceLock(inputDir, role, allowStaleRecovery = f
   });
 }
 
+/**
+ * Reclaim only the instance lock after the caller has stopped every process using
+ * this data directory. This is for container recovery, where a helper process can
+ * see an unrelated PID with the same number in its own namespace. The coordination
+ * guard and full lock-record validation still apply; restore journals are untouched.
+ */
+export async function recoverStoppedInstanceLock(inputDir) {
+  const dataDir = resolve(inputDir);
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  const path = join(dataDir, ".folio-instance.lock");
+  return withGuard(dataDir, async () => {
+    try {
+      await readLockRecord(path);
+      await rm(path);
+      return true;
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+  });
+}
+
 export async function assertNoRestoreJournal(dataDir) {
   const root = resolve(dataDir);
   const journal = join(root, ".folio-restore-journal.json");
