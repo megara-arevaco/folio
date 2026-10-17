@@ -107,3 +107,9 @@ TypeScript y build de Vite correctos. Capturas de las cinco rutas a 1440px y 390
 ## Evitar
 
 Marco nogal, píldoras en campos y botones ordinarios, glassmorphism, gradientes decorativos, sombras anchas, mapas o fotografías de relleno y tipografía serif en controles densos.
+
+### Estante de lecturas
+
+La escena muestra hasta nueve libros alrededor de la selección, con cubiertas reales o tipográficas, encuadernación, páginas y sombras. Seleccionar un libro actualiza su ficha; las flechas HTML ofrecen la misma navegación con teclado y «Abrir ficha» abre su editor. Sin WebGL se muestran cubiertas estáticas y se conserva toda la gestión. Three.js se carga bajo demanda, dibuja solo al cambiar la escena y libera sus recursos al desmontar.
+
+El archivo permite combinar estado, año de finalización y búsqueda local por título, autor o categoría. El estante refleja esos filtros. El resumen conserva los totales de la biblioteca; la actividad cuenta únicamente los libros terminados en el año seleccionado, o en el año actual si se muestran todos los años. No se inventan lecturas para rellenar los estados vacíos.

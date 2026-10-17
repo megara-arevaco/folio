@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
-import { deleteDeviceBook, fetchDeviceDiagnostics, fetchEbookDevices, getDeviceBookUrl, uploadDeviceBook, type DeviceDiagnostics, type EbookDevice } from "../services/devices";
+import { getDeviceBookUrl } from "../services/devices";
+import { useDevicePage } from "./DevicePage.hook";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -20,123 +20,30 @@ function DeviceIcon({ type }: { type: "edit" | "download" | "delete" | "upload" 
 }
 
 export function DevicePage() {
-  const { t, i18n } = useTranslation();
-  const locale = i18n.resolvedLanguage === "en" ? "en" : "es";
+  const { t } = useTranslation();
   const navigate = useNavigate();
-  const [devices, setDevices] = useState<EbookDevice[]>([]);
-  const [diagnostics, setDiagnostics] = useState<DeviceDiagnostics | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedBooks, setSelectedBooks] = useState<Set<string>>(() => new Set());
-  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
-  const [uploadingDeviceId, setUploadingDeviceId] = useState<string | null>(null);
-  const [isConvertingUpload, setIsConvertingUpload] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-
-  const selectionKey = (deviceId: string, path: string) => `${deviceId}\u0000${path}`;
-  const normalizeSearch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase(locale);
-  const normalizedSearch = normalizeSearch(debouncedSearch.trim());
-  const visibleDevices = devices
-    .map((device) => ({
-      ...device,
-      books: normalizedSearch
-        ? device.books.filter((book) => normalizeSearch(`${book.title} ${book.fileName} ${book.authors.join(" ")}`).includes(normalizedSearch))
-        : device.books,
-    }))
-    .filter((device) => device.books.length > 0);
-  const visibleBookKeys = visibleDevices.flatMap((device) => device.books.map((book) => selectionKey(device.id, book.path)));
-
-  async function refresh() {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const nextDevices = await fetchEbookDevices();
-      setDevices(nextDevices);
-      setSelectedBooks(new Set());
-      setDiagnostics(await fetchDeviceDiagnostics().catch(() => null));
-    }
-    catch (loadError) { setError(loadError instanceof Error ? loadError.message : t("metadata.deviceListError")); }
-    finally { setIsLoading(false); }
-  }
-
-  useEffect(() => { void refresh(); }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search), 150);
-    return () => window.clearTimeout(timer);
-  }, [search]);
-
-  async function removeBook(deviceId: string, path: string, title: string) {
-    if (!window.confirm(t("device.deleteConfirm", { title }))) return;
-    setError(null);
-    try {
-      await deleteDeviceBook(deviceId, path);
-      await refresh();
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : t("metadata.bookDeleteError"));
-    }
-  }
-
-  function toggleBook(deviceId: string, path: string) {
-    const key = selectionKey(deviceId, path);
-    setSelectedBooks((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
-
-  function toggleAllBooks() {
-    const allVisibleSelected = visibleBookKeys.length > 0 && visibleBookKeys.every((key) => selectedBooks.has(key));
-    setSelectedBooks((current) => {
-      const next = new Set(current);
-      visibleBookKeys.forEach((key) => allVisibleSelected ? next.delete(key) : next.add(key));
-      return next;
-    });
-  }
-
-  async function removeSelectedBooks() {
-    const selected = devices.flatMap((device) => device.books
-      .filter((book) => selectedBooks.has(selectionKey(device.id, book.path)))
-      .map((book) => ({ deviceId: device.id, path: book.path })));
-    if (selected.length === 0 || !window.confirm(t("device.selectedDeleteConfirm", { count: selected.length }))) return;
-    setIsDeletingSelected(true);
-    setError(null);
-    let failures = 0;
-    for (const book of selected) {
-      try { await deleteDeviceBook(book.deviceId, book.path); }
-      catch { failures++; }
-    }
-    setSelectedBooks(new Set());
-    await refresh();
-    if (failures > 0) setError(t("device.selectedDeleteError", { count: failures }));
-    setIsDeletingSelected(false);
-  }
-
-  async function sendFiles(deviceId: string, files: File[]) {
-    if (files.length === 0) return;
-    setUploadingDeviceId(deviceId);
-    setIsConvertingUpload(files.some((file) => file.name.toLowerCase().endsWith(".epub")));
-    setError(null);
-    setNotice(null);
-    const failures: string[] = [];
-    let uploaded = 0;
-    for (const file of files) {
-      try {
-        await uploadDeviceBook(deviceId, file);
-        uploaded++;
-      } catch (uploadError) {
-        failures.push(`${file.name}: ${uploadError instanceof Error ? uploadError.message : t("device.unknownError")}`);
-      }
-    }
-    await refresh();
-    if (uploaded > 0) setNotice(t("device.sent", { count: uploaded }));
-    if (failures.length > 0) setError(t("device.sendError", { errors: failures.join("; ") }));
-    setUploadingDeviceId(null);
-    setIsConvertingUpload(false);
-  }
+  const {
+    devices,
+    diagnostics,
+    isLoading,
+    error,
+    selectedBooks,
+    isBookSelected,
+    isDeletingSelected,
+    uploadingDeviceId,
+    isConvertingUpload,
+    notice,
+    search,
+    setSearch,
+    visibleDevices,
+    areAllVisibleBooksSelected,
+    refresh,
+    removeBook,
+    toggleBook,
+    toggleAllBooks,
+    removeSelectedBooks,
+    sendFiles,
+  } = useDevicePage();
 
   return (
     <main className="workspace-page">
@@ -209,10 +116,10 @@ export function DevicePage() {
             <div className="device-table-wrap">
               <table className="table device-table">
                 <colgroup><col className="w-[5%]" /><col className="w-[39%]" /><col className="w-[20%]" /><col className="w-[9%]" /><col className="w-[9%]" /><col className="w-[18%]" /></colgroup>
-                <thead><tr><th><input type="checkbox" className="checkbox checkbox-sm" aria-label={t("device.selectAll")} checked={visibleBookKeys.length > 0 && visibleBookKeys.every((key) => selectedBooks.has(key))} onChange={toggleAllBooks} /></th><th>{t("device.book")}</th><th>{t("device.author")}</th><th>{t("device.format")}</th><th>{t("device.size")}</th><th className="text-right">{t("device.actions")}</th></tr></thead>
+                <thead><tr><th><input type="checkbox" className="checkbox checkbox-sm" aria-label={t("device.selectAll")} checked={areAllVisibleBooksSelected} onChange={toggleAllBooks} /></th><th>{t("device.book")}</th><th>{t("device.author")}</th><th>{t("device.format")}</th><th>{t("device.size")}</th><th className="text-right">{t("device.actions")}</th></tr></thead>
                 <tbody>{device.books.map((book) => (
                   <tr key={book.path}>
-                    <td data-label={t("device.select")}><input type="checkbox" className="checkbox checkbox-sm" aria-label={t("device.selectBook", { name: book.title })} checked={selectedBooks.has(selectionKey(device.id, book.path))} onChange={() => toggleBook(device.id, book.path)} /></td>
+                    <td data-label={t("device.select")}><input type="checkbox" className="checkbox checkbox-sm" aria-label={t("device.selectBook", { name: book.title })} checked={isBookSelected(device.id, book.path)} onChange={() => toggleBook(device.id, book.path)} /></td>
                     <td data-label={t("device.book")}>
                       {["EPUB", "PDF"].includes(book.format) ? (
                         <button
