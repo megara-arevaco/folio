@@ -12,17 +12,23 @@ RUN pnpm prune --prod
 
 FROM node:24-bookworm-slim AS runtime
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends calibre poppler-utils \
+  && apt-get install -y --no-install-recommends calibre poppler-utils util-linux \
+  && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3-pil \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY packages/data-safety ./packages/data-safety
+COPY scripts/container-entrypoint.sh scripts/container-command.sh ./scripts/
 COPY eng.traineddata spa.traineddata ./tessdata/
 RUN mkdir -p /data && chown node:node /data
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3001 FOLIO_DATA_DIR=/data TESSDATA_PREFIX=/app/tessdata
 USER node
 EXPOSE 3001
+ENTRYPOINT ["sh", "/app/scripts/container-entrypoint.sh"]
 CMD ["node", "dist/api/start.js"]
 
 FROM scratch AS web

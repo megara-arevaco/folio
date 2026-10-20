@@ -57,3 +57,7 @@ export async function uploadDeviceBook(deviceId: string, file: File): Promise<{ 
   if (!response.ok) throw new Error(await readErrorMessage(response, i18n.t("metadata.deviceSendError")));
   return readApiData<{ path: string; fileName: string }>(response);
 }
+
+export function getDeviceCoverUrl(deviceId: string, book: { path: string; modifiedAt: string; size: number }): string {
+  return `${API_BASE_URL}/api/devices/${encodeURIComponent(deviceId)}/books/cover?path=${encodeURIComponent(book.path)}&v=${encodeURIComponent(`shelf2-${book.modifiedAt}-${book.size}`)}`;
+}

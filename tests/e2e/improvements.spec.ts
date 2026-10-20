@@ -14,17 +14,20 @@ function fictionalEpub(paragraphCount = 2) {
   return zip.toBuffer();
 }
 
-test("muestra provider y resultado Mock sin crear un trabajo ni modificar originales; integra metadatos, versiones, lecturas y archivo", async ({ page }) => {
-  await page.getByRole("heading", { name: "Antes de procesar" }).waitFor();
-  await expect(page.getByText("OpenRouter · Mock, sin evaluar calidad")).toBeVisible();
-  await expect(page.getByText(/Coste en dinero: no estimable con fiabilidad/)).toBeVisible();
-
+test("verifica la muestra Mock por API sin crear un trabajo ni modificar originales; integra metadatos, versiones, lecturas y archivo", async ({ page }) => {
+  const origin = new URL(page.url()).origin;
+  await expect(page.getByRole("heading", { name: "Antes de procesar" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Previsualizar muestra" })).toHaveCount(0);
+  const preflight = await page.request.get(`${origin}/api/preflight`);
+  expect((await preflight.json()).data.translation.mode).toBe("mock");
+  const sample = await page.request.post(`${origin}/api/previews/epub-translation`, { multipart: {
+    file: { name: "faro-ficticio.epub", mimeType: "application/epub+zip", buffer: fictionalEpub() },
+  } });
+  expect(sample.ok()).toBe(true);
+  const preview = (await sample.json()).data;
+  expect(preview.mock).toBe(true);
+  expect(preview.sample.some((item: { source: string; result: string }) => item.source.includes("The quiet lighthouse") && item.result.includes("[ES] The quiet lighthouse"))).toBe(true);
   await page.locator('input[type="file"]').setInputFiles({ name: "faro-ficticio.epub", mimeType: "application/epub+zip", buffer: fictionalEpub() });
-  await page.getByRole("button", { name: "Previsualizar muestra" }).click();
-  await expect(page.getByText("Resultado Mock: no evalúa la calidad de traducción.")).toBeVisible();
-  await expect(page.getByText("La muestra no reemplaza ni modifica el original.")).toBeVisible();
-  await expect(page.getByText("The quiet lighthouse", { exact: true })).toBeVisible();
-  await expect(page.getByText("[ES] The quiet lighthouse", { exact: true })).toBeVisible();
   const beforeStart = await page.request.get(`${new URL(page.url()).origin}/api/jobs`);
   expect(await beforeStart.json()).toMatchObject({ ok: true, data: [] });
 
@@ -56,7 +59,7 @@ test("muestra provider y resultado Mock sin crear un trabajo ni modificar origin
 
   await page.getByRole("button", { name: "Añadir a lecturas", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Lecturas", exact: true }).first()).toBeVisible();
-  await expect(page.getByText("La casa del faro", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "La casa del faro", exact: true })).toBeVisible();
 
   await page.goto(`${new URL(page.url()).origin}/translations`);
   await expect(page.locator('.job-status__label[data-status="done"]')).toBeVisible();
@@ -168,7 +171,7 @@ test("recupera un fallo simulado de proveedor sin salir de localhost ni perder e
   }
 });
 
-test("previsualiza páginas PDF locales y explica el diagnóstico del puente sin conectar lectores reales", async ({ page }) => {
+test("verifica muestras PDF y diagnóstico por API sin mostrar sus paneles", async ({ page }) => {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   pdf.addPage().drawText("Fictional local sample page, made only for Folio preview checks.", { x: 48, y: 720, font, size: 14 });
@@ -176,15 +179,18 @@ test("previsualiza páginas PDF locales y explica el diagnóstico del puente sin
   await page.getByRole("link", { name: "Convertir PDF", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Convertir PDF", exact: true })).toBeVisible();
   await page.locator('input[type="file"][accept=".pdf"]').setInputFiles({ name: "muestra-ficticia.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdf.save()) });
-  await page.getByRole("button", { name: "Previsualizar muestra" }).click();
-  await expect(page.getByText(/Fictional local sample page/)).toBeVisible();
-  await expect(page.getByText("Extracción local de texto seleccionable; no aplica OCR en esta muestra.")).toBeVisible();
-  await expect(page.getByText("Estructura de la muestra")).toBeVisible();
-  await expect(page.getByText("No se detectó un índice impreso en las páginas de muestra; no implica que falte en el documento completo.")).toBeVisible();
-  await expect(page.getByText("Marcadores del PDF: 0.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Previsualizar muestra" })).toHaveCount(0);
+  const sample = await page.request.post(`${new URL(page.url()).origin}/api/previews/pdf-conversion`, { multipart: {
+    file: { name: "muestra-ficticia.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdf.save()) },
+  } });
+  expect(sample.ok()).toBe(true);
+  const preview = (await sample.json()).data;
+  expect(preview.provider).toBe("local");
+  expect(preview.pages[0].text).toContain("Fictional local sample page");
+  expect(preview.structure.bookmarkCount).toBe(0);
 
   await page.getByRole("link", { name: "Dispositivo", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Diagnóstico de conexión" })).toBeVisible();
-  await expect(page.getByText("No hay puente configurado; Folio solo ve los lectores montados en el servidor.")).toBeVisible();
-  await expect(page.getByText(/0 lectores montados en el servidor/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Diagnóstico de conexión" })).toHaveCount(0);
+  const diagnostics = await page.request.get(`${new URL(page.url()).origin}/api/devices/diagnostics`);
+  expect(diagnostics.ok()).toBe(true);
 });

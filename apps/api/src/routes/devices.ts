@@ -1,11 +1,12 @@
 import { parsePublicDevices } from "../../../../packages/contracts/src/devices";
 import { fetchWithDeadline, readBoundedBody, readBoundedJson } from "../services/shared/network";
+import { getDeviceCover } from "../services/deviceCovers";
 import { maxDocumentBytes } from "../services/shared/limits";
 import { createReadStream } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import { attachmentContentDisposition } from "../http";
 import { deleteDeviceBook, listEbookDevices, replaceDeviceBook, resolveDeviceBook, uploadDeviceBook } from "../services/devices";
-import { prepareKindleUpload } from "../services/kindle";
+import { basename, extname } from "node:path";
 
 export async function deviceRoutes(fastify: FastifyInstance) {
   fastify.addHook("preValidation", async (request, reply) => {
@@ -55,6 +56,29 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     return reply.send({ ok: true, data: (await listEbookDevices()).map(({ id, name, books }) => ({ id, name, books })) });
   });
 
+  fastify.get("/api/devices/:deviceId/books/cover", async (request, reply) => {
+    const { deviceId } = request.params as { deviceId: string };
+    const { path, v = "" } = request.query as { path?: string; v?: unknown };
+    if (!path || typeof v !== "string" || v.length > 200) return reply.status(400).send({ ok: false, error: "Ruta de portada inválida" });
+    const cover = await getDeviceCover(JSON.stringify([deviceId, path, v]), async () => {
+      const bridge = process.env.DEVICE_BRIDGE_URL;
+      if (bridge) {
+        const headers = { "X-Device-Bridge-Token": process.env.DEVICE_BRIDGE_TOKEN ?? "folio-local-device-bridge" };
+        const root = `${bridge}/devices/${encodeURIComponent(deviceId)}`;
+        const thumbnail = await fetchWithDeadline(`${root}/cover?path=${encodeURIComponent(path)}`, { headers });
+        if (thumbnail.ok && thumbnail.status !== 204) return { thumbnail: await readBoundedBody(thumbnail, 512 * 1024) };
+        if (thumbnail.status === 204 && !/\.(azw3?|mobi|kfx)$/i.test(path)) return null;
+        const source = await fetchWithDeadline(`${root}/book?path=${encodeURIComponent(path)}`, { headers });
+        if (!source.ok) return null;
+        return { data: await readBoundedBody(source, maxDocumentBytes()), fileName: basename(path) };
+      }
+      const book = await resolveDeviceBook(deviceId, path);
+      return book ? { path: book.path, fileName: book.fileName } : null;
+    });
+    if (!cover) return reply.status(404).send();
+    return reply.header("Cache-Control", "private, max-age=3600").type("image/jpeg").send(cover);
+  });
+
   fastify.get("/api/devices/:deviceId/books/download", async (request, reply) => {
     const { deviceId } = request.params as { deviceId: string };
     const { path } = request.query as { path?: string };
@@ -83,14 +107,12 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     const { deviceId } = request.params as { deviceId: string };
     const upload = await request.file();
     if (!upload) return reply.status(400).send({ ok: false, error: "Selecciona un archivo para enviar" });
-    const uploadedData = await upload.toBuffer();
-    let prepared: Awaited<ReturnType<typeof prepareKindleUpload>>;
-    try {
-      prepared = await prepareKindleUpload(uploadedData, upload.filename);
-    } catch (error) {
-      return reply.status(422).send({ ok: false, error: error instanceof Error ? error.message : "No se ha podido convertir el EPUB" });
+    const fileName = basename(upload.filename).replace(/[\u0000-\u001f\u007f]/g, "").trim();
+    if (!/^(epub|azw|azw3|mobi|kfx|pdf)$/.test(extname(fileName).slice(1).toLowerCase())) {
+      return reply.status(400).send({ ok: false, error: "Formato no compatible. Usa EPUB, AZW, AZW3, MOBI, KFX o PDF" });
     }
-    const { data, fileName } = prepared;
+    const data = await upload.toBuffer();
+    if (data.length > maxDocumentBytes()) return reply.status(413).send({ ok: false, error: "El archivo supera el tamaño máximo permitido" });
     const bridgeUrl = process.env.DEVICE_BRIDGE_URL;
     if (bridgeUrl) {
       try {
@@ -109,7 +131,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
         const detail = await readBoundedJson(response).catch(() => null) as { data?: { path: string; fileName: string }; error?: string } | null;
         if (response.ok && detail?.data) return reply.status(201).send({ ok: true, data: detail.data });
         if (response.status === 404) return reply.status(404).send({ ok: false, error: "Dispositivo no encontrado" });
-        return reply.status(response.status === 400 ? 400 : 409).send({ ok: false, error: detail?.error ?? "El Kindle ha rechazado el archivo" });
+        return reply.status(response.status === 400 ? 400 : 409).send({ ok: false, error: detail?.error ?? "El dispositivo ha rechazado el archivo" });
       } catch {
         return reply.status(502).send({ ok: false, error: "No se ha podido confirmar la operación en el dispositivo; comprueba el resultado antes de reintentarlo" });
       }

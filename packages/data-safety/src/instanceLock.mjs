@@ -111,10 +111,19 @@ export async function acquireInstanceLock(inputDir, role, allowStaleRecovery = f
  * see an unrelated PID with the same number in its own namespace. The coordination
  * guard and full lock-record validation still apply; restore journals are untouched.
  */
-export async function recoverStoppedInstanceLock(inputDir) {
+export async function recoverStoppedInstanceLock(inputDir, recoverGuard = false) {
   const dataDir = resolve(inputDir);
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const path = join(dataDir, ".folio-instance.lock");
+  // Only the container entrypoint, holding the kernel lock for this volume, uses this.
+  if (recoverGuard) {
+    const guard = join(dataDir, ".folio-instance.guard");
+    try {
+      const record = await readLockRecord(guard);
+      if (record.role !== "folio-lock-guard") throw new Error("Rol de coordinación inválido");
+      await rm(guard);
+    } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  }
   return withGuard(dataDir, async () => {
     try {
       await readLockRecord(path);

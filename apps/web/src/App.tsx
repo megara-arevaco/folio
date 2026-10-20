@@ -187,9 +187,8 @@ function ConversionSection({
 }: ConversionSectionProps) {
   const { t } = useTranslation();
   const [preflightReady, setPreflightReady] = useState(false);
-  const [isPreviewingSample, setIsPreviewingSample] = useState(false);
   const activeFileName = file?.name ?? inputFileName;
-  const canStart = Boolean(file) && !isUploading && !isPreviewingSample && preflightReady;
+  const canStart = Boolean(file) && !isUploading && preflightReady;
   const viewStatus = (!activeFileName || phase === "pending" ? "idle" : phase) as
     | "idle"
     | "uploading"
@@ -212,7 +211,7 @@ function ConversionSection({
           <FilePicker
             onFileSelected={onFileSelected}
             onFileCleared={onFileCleared}
-            disabled={isUploading || isPreviewingSample}
+            disabled={isUploading}
             accept={accept}
             allowedExtensions={allowedExtensions}
             emptyLabel={emptyLabel}
@@ -234,10 +233,8 @@ function ConversionSection({
           />
 
           <ProcessingPreflightPanel
-            file={file}
             kind={statusMode === "conversion" ? "pdf-conversion" : "epub-translation"}
             onReadinessChange={setPreflightReady}
-            onPreviewingChange={setIsPreviewingSample}
           />
 
           {showStatus && !queueJobs.some(

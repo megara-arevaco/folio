@@ -7,3 +7,4 @@ export function acquireInstanceLock(
 ): Promise<() => Promise<void>>;
 
 export function assertNoRestoreJournal(dataDir: string): Promise<void>;
+export function recoverStoppedInstanceLock(dataDir: string, recoverGuard?: boolean): Promise<boolean>;

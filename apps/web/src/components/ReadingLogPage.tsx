@@ -1,3 +1,4 @@
+import { BookVolume } from "./BookVolume";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -65,33 +66,6 @@ type PopoverPosition = {
   bottom?: number;
 };
 
-function groupBooksByReadingMonth(books: ReadingBook[], locale: string, t: TFunction) {
-  const monthNameFormatter = new Intl.DateTimeFormat(locale, {
-    month: "long",
-    timeZone: "UTC",
-  });
-  const grouped = new Map<string, ReadingBook[]>();
-
-  for (const book of books) {
-    const monthKey = book.finishedAt?.slice(0, 7) || "undated";
-    grouped.set(monthKey, [...(grouped.get(monthKey) ?? []), book]);
-  }
-
-  return Array.from(grouped.entries())
-    .sort(([firstKey], [secondKey]) => {
-      if (firstKey === "undated") return 1;
-      if (secondKey === "undated") return -1;
-      return firstKey.localeCompare(secondKey);
-    })
-    .map(([key, groupedBooks]) => {
-      if (key === "undated") return { key, label: t("reading.undated"), books: groupedBooks };
-
-      const [year, month] = key.split("-").map(Number);
-      const monthName = monthNameFormatter.format(new Date(Date.UTC(year, month - 1, 1)));
-      return { key, label: `${monthName} ${year}`, books: groupedBooks };
-    });
-}
-
 function CategoryIcon({ type }: { type: "add" | "remove" }) {
   return (
     <svg
@@ -112,6 +86,7 @@ function CategoryIcon({ type }: { type: "add" | "remove" }) {
 export function ReadingLogPage() {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage === "en" ? "en-US" : "es-ES";
+  const readingDate = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" });
   const labels: Record<ReadingBook["status"], string> = {
     "to-read": t("reading.statusToRead"),
     reading: t("reading.statusReading"),
@@ -250,12 +225,13 @@ export function ReadingLogPage() {
           <h2 className="section-title">{t("reading.archive")}</h2>
           {books.length > 0 ? <p className="section-copy">{t("reading.resultCount", { count: books.length })}</p> : null}
         </div>
-        <div className="reading-groups">
-          {groupBooksByReadingMonth(books, locale, t).map((group) => (
-            <section key={group.key} className="reading-group">
-              <h3 className="reading-group__heading">{group.label}</h3>
-              <div className="reading-list">
-                {group.books.map((book) => {
+        <div className="reading-list">
+          {[...books].sort((first, second) => {
+            if (!first.finishedAt && second.finishedAt) return 1;
+            if (first.finishedAt && !second.finishedAt) return -1;
+            return (first.finishedAt ?? first.createdAt).localeCompare(second.finishedAt ?? second.createdAt)
+              || first.createdAt.localeCompare(second.createdAt);
+          }).map((book) => {
                 const isPickerOpen = categoryPickerBookId === book.id;
                 const isUpdatingCategories = updatingCategoriesBookId === book.id;
                 const availableCategories = commonCategories.filter(
@@ -265,7 +241,7 @@ export function ReadingLogPage() {
                 return (
                   <article
                     key={book.id}
-                    className="reading-book relative"
+                    className="reading-book device-book-card relative"
                   >
                 <button
                   type="button"
@@ -280,17 +256,20 @@ export function ReadingLogPage() {
                     const left = rightSide + panelWidth <= window.innerWidth - 12
                       ? rightSide
                       : Math.max(12, rect.left - panelWidth - 8);
-                    setEditingPosition({ left, top: Math.max(12, rect.top) });
+                    setEditingPosition({ left, top: Math.max(12, Math.min(rect.top, window.innerHeight - 430)) });
                     setEditingBookId(book.id);
                   }}
                 >
-                  {book.coverUrl ? <img className="reading-cover" src={book.coverUrl} alt={t("reading.coverAlt", { title: book.title })} /> : <span className="reading-cover bg-base-200" />}
+                  <BookVolume title={book.title} authors={book.authors} coverUrl={book.coverUrl} label={book.firstPublishYear?.toString()} />
                 </button>
                 <div className="reading-book__body">
                   <div className="reading-book__summary">
                     <h2 className="reading-book__title">{book.title}</h2>
                     <p className="reading-book__author">{book.authors.join(", ") || t("reading.unknownAuthor")}</p>
-                    <span className="reading-book__status">{labels[book.status]}</span>
+                    <div className="reading-book__details">
+                      <span className="reading-book__status">{labels[book.status]}</span>
+                      {book.finishedAt ? <time className="reading-book__date" dateTime={book.finishedAt.slice(0, 7)}>{readingDate.format(new Date(book.finishedAt))}</time> : <span className="reading-book__date">{t("reading.undated")}</span>}
+                    </div>
                   </div>
 
                   {editingBookId === book.id && editingPosition ? createPortal(
@@ -437,10 +416,7 @@ export function ReadingLogPage() {
                 </div>
                   </article>
                 );
-                })}
-              </div>
-            </section>
-          ))}
+          })}
         </div>
 
         {!books.length ? <div className="workbench-surface py-12 text-center text-sm text-base-content/60">{t("reading.noBooks")}</div> : null}

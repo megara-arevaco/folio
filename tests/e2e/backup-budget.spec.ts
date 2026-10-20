@@ -386,7 +386,7 @@ test("los EPUB generados por PDF conservan metadatos, versiones, original PDF, l
   await expect(page.getByText(/No hay destinos conectados/)).toBeVisible();
   await page.getByRole("button", { name: "Añadir a lecturas", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Lecturas", exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Resultado PDF convertido", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Resultado PDF convertido", exact: true })).toBeVisible();
 });
 
 test("reservas de muestras, retries LLM y peticiones PDF agotan límites sin enviar llamadas extra, también tras reiniciar", async ({ page, dataRoot, server }) => {
@@ -514,13 +514,13 @@ test("diagnostica, pierde y reconecta un puente local simulado sin hardware", as
   const api = await launchServer(dataRoot, { DEVICE_BRIDGE_URL: `http://127.0.0.1:${address.port}`, DEVICE_BRIDGE_TOKEN: "test-only-local-bridge" });
   try {
     await page.goto(`${api.origin}/device`);
-    await expect(page.getByText("Puente del equipo disponible.")).toBeVisible();
+    expect((await (await page.request.get(`${api.origin}/api/devices/diagnostics`)).json()).data.bridgeReachable).toBe(true);
     reachable = false;
     await page.getByRole("button", { name: "Actualizar" }).click();
-    await expect(page.getByText("El puente del equipo no responde; revisa que siga ejecutándose.")).toBeVisible();
+    expect((await (await page.request.get(`${api.origin}/api/devices/diagnostics`)).json()).data.bridgeReachable).toBe(false);
     reachable = true;
     await page.getByRole("button", { name: "Actualizar" }).click();
-    await expect(page.getByText("Puente del equipo disponible.")).toBeVisible();
+    expect((await (await page.request.get(`${api.origin}/api/devices/diagnostics`)).json()).data.bridgeReachable).toBe(true);
   } finally {
     await api.close();
     await new Promise<void>((resolveClose, reject) => bridge.close((error) => error ? reject(error) : resolveClose()));

@@ -1,3 +1,4 @@
+import { getDeviceCover } from "../apps/api/src/services/deviceCovers";
 import { maxDocumentBytes, readDocument } from "../apps/api/src/services/shared/limits";
 import { fileOperations, writeFileAtomically } from "../apps/api/src/services/shared/files";
 import { execFile } from "node:child_process";
@@ -99,6 +100,18 @@ createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/devices") {
       response.setHeader("Content-Type", "application/json");
       response.end(JSON.stringify({ ok: true, data: (await getDevices()).map(({ id, name, books }) => ({ id, name, books })) }));
+      return;
+    }
+    const coverMatch = url.pathname.match(/^\/devices\/([^/]+)\/cover$/);
+    if (request.method === "GET" && coverMatch) {
+      const device = (await getDevices()).find((item) => item.id === decodeURIComponent(coverMatch[1]!));
+      const book = device ? await resolveKnownDeviceBook(device, url.searchParams.get("path") ?? "") : null;
+      if (!book) { response.writeHead(404).end(); return; }
+      const info = await stat(book.path);
+      const cover = await getDeviceCover(`${book.path}:${info.size}:${info.mtimeMs}`, async () => ({ path: book.path, fileName: book.fileName }));
+      if (!cover) { response.writeHead(204).end(); return; }
+      response.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600" });
+      response.end(cover);
       return;
     }
     const match = url.pathname.match(/^\/devices\/([^/]+)\/book$/);
