@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM node:24.22.1-bookworm-slim@sha256:1681862882da07ee5476fee047bcf34138833f1df42633bb25bcb0f438d5bf3d AS build
 WORKDIR /app
 RUN npm install --global pnpm@10.0.0
 COPY package.json pnpm-lock.yaml ./
@@ -10,7 +10,7 @@ COPY tsconfig.json ./
 RUN pnpm build
 RUN pnpm prune --prod
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim@sha256:1681862882da07ee5476fee047bcf34138833f1df42633bb25bcb0f438d5bf3d AS runtime
 RUN apt-get update \
   && apt-get install -y --no-install-recommends calibre poppler-utils util-linux \
   && rm -rf /var/lib/apt/lists/*
